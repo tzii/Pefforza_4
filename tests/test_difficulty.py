@@ -23,6 +23,12 @@ def test_registry_contains_expected_tiers():
     assert DEFAULT_DIFFICULTY in DIFFICULTY_NAMES
 
 
+def test_hard_backend_is_the_bitboard_engine():
+    """`hard` must stay backed by the bitboard engine (plan PR3); the matrix
+    engine remains only as the differential-test baseline."""
+    assert "Bitboard alpha-beta" in DIFFICULTIES["hard"].description
+
+
 @pytest.mark.parametrize("name", ["easy", "medium", "hard", "impossible"])
 def test_build_opponent_returns_playable_agent(name: str):
     agent = build_opponent(name, seed=0)

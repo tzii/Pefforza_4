@@ -6,7 +6,7 @@ opponent, and overlay the recommended column. Press 'q' to quit.
 Difficulty tiers (same as ``play_gui.py``):
   easy        Random opponent.
   medium      1-ply heuristic (win/block/center).
-  hard        Minimax depth 5 with alpha-beta. Default.
+  hard        Bitboard alpha-beta search, depth 8. Default.
   impossible  Iterative-deepening minimax (~3s budget). Strong heuristic search.
   neural      Wraps the bundled PPO checkpoint.
 """
@@ -27,8 +27,14 @@ from pefforza.agent.difficulty import (
     describe_difficulties,
 )
 from pefforza.constants import DEFAULT_MODEL_PATH
-from pefforza.rules import available_columns, check_winner, swap_perspective
+from pefforza.rules import (
+    available_columns,
+    check_winner,
+    player_to_move,
+    swap_perspective,
+)
 from pefforza.vision.board_detector import BoardDetector
+from pefforza.vision.validation import BoardStateValidator
 
 logger = logging.getLogger(__name__)
 
@@ -90,13 +96,14 @@ def main(argv: list[str] | None = None) -> int:
         agent = build_opponent(args.difficulty, seed=args.seed, model_path=args.model)
 
         detector = BoardDetector()
+        validator = BoardStateValidator()
         print("\nStarting calibration: click the 4 corners of the board. Press 'q' to abort.")
         print("Order doesn't matter - we auto-detect TL/TR/BR/BL.")
         if not detector.calibrate(cap, flip=True):
             logger.error("Calibration failed or cancelled.")
             return 1
 
-        print("Controls: [SPACE] analyze | [q] quit")
+        print("Controls: [SPACE] analyze | [r] reset board tracking | [q] quit")
         last_recommendation: int | None = None
         game_over_message: str | None = None
 
@@ -110,10 +117,28 @@ def main(argv: list[str] | None = None) -> int:
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
+            if key == ord("r"):
+                validator.reset()
+                last_recommendation = None
+                game_over_message = None
+                print("Board tracking reset: the next analyzed state starts a new history.")
             if key == ord(" "):
                 grid, _ = detector.process_frame(frame)
                 if grid is None:
                     print("Could not process board; check calibration.")
+                    continue
+                check = validator.accept(grid)
+                if not check.ok:
+                    # A misread (hand occlusion, mid-drop token, glare) must
+                    # never reach the AI as a real position.
+                    print(f"Board rejected: {check.reason}.")
+                    print("Let the board settle and press SPACE again, or press 'r' to resync.")
+                elif check.reason is not None:
+                    # Informational accept, e.g. new game detected after the
+                    # board was cleared. Press SPACE again to get a move.
+                    print(f"Board accepted: {check.reason}.")
+                    last_recommendation = None
+                    game_over_message = None
                 else:
                     print("\nDetected board:")
                     print(grid)
@@ -124,29 +149,41 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"Game over: {game_over_message}")
                     else:
                         game_over_message = None
-                        # Translate vision view (1=Red, 2=Yellow) into agent
-                        # view (1 = "self"). If AI plays Yellow, swap.
-                        agent_view = grid.copy() if ai_is_red else swap_perspective(grid)
-                        valid = available_columns(agent_view)
-                        if not valid:
-                            print("Board is full.")
-                        else:
-                            col = agent(agent_view, 1, valid)
-                            if col not in valid:
-                                col = valid[0]
-                            # Two coordinate systems are involved: the arrow
-                            # must be drawn on the flipped display frame (the
-                            # same space the grid was classified in), while
-                            # the human plays on the physical board, whose
-                            # left-to-right order is opposite to the mirrored
-                            # display's.
-                            display_col = col
-                            physical_col = detector.physical_col(display_col)
-                            last_recommendation = display_col
+                        # Only consult the AI on its own turn. Vision view is
+                        # 1 = red / 2 = yellow; the validator already proved
+                        # the counts are turn-compatible.
+                        turn = player_to_move(grid)
+                        ai_token = 1 if ai_is_red else 2
+                        if turn != ai_token:
                             print(
-                                f"AI ({ai_color_name}, {args.difficulty}) "
-                                f"recommends physical column {physical_col + 1}"
+                                "Board accepted. Opponent's turn - "
+                                "press SPACE after their move lands."
                             )
+                            last_recommendation = None
+                        else:
+                            # Translate vision view (1=Red, 2=Yellow) into agent
+                            # view (1 = "self"). If AI plays Yellow, swap.
+                            agent_view = grid.copy() if ai_is_red else swap_perspective(grid)
+                            valid = available_columns(agent_view)
+                            if not valid:
+                                print("Board is full.")
+                            else:
+                                col = agent(agent_view, 1, valid)
+                                if col not in valid:
+                                    col = valid[0]
+                                # Two coordinate systems are involved: the arrow
+                                # must be drawn on the flipped display frame (the
+                                # same space the grid was classified in), while
+                                # the human plays on the physical board, whose
+                                # left-to-right order is opposite to the mirrored
+                                # display's.
+                                display_col = col
+                                physical_col = detector.physical_col(display_col)
+                                last_recommendation = display_col
+                                print(
+                                    f"AI ({ai_color_name}, {args.difficulty}) "
+                                    f"recommends physical column {physical_col + 1}"
+                                )
 
             cv2.putText(
                 display,

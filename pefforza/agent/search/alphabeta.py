@@ -1,10 +1,11 @@
 """Depth-limited alpha-beta search on :mod:`.bitboard` positions.
 
-This is the first migration step away from the NumPy search engine. It keeps
-its heuristic semantics but adds a transposition table and integer-only board
-operations. It is intentionally *not* wired to the public difficulty registry
-yet; the legacy engine remains the baseline until differential tests and
-benchmarks are stable.
+This is the migration step away from the NumPy search engine. It keeps the
+legacy heuristic semantics but adds a transposition table and integer-only
+board operations, and backs the public ``hard`` difficulty tier (see
+:func:`pefforza.agent.difficulty.bitboard_agent`). The legacy matrix engine
+remains the correctness baseline: ``tests/test_bitboard_search.py`` pins the
+two engines to identical scores and best moves on a corpus of positions.
 """
 
 from __future__ import annotations
@@ -111,9 +112,13 @@ class BitboardSearchAgent:
         alpha = -INF
         beta = INF
         best_col = legal[0]
-        root_entry = self._table.get(position.key) if self.use_tt else None
 
-        for col in self._ordered_columns(position, root_entry.best_move if root_entry else None):
+        # Root ordering is deliberately TT-independent. A best_move left in
+        # the table by an earlier search of a transposed position would make
+        # the published move depend on the engine's search history even when
+        # the candidates score identically; center-first keeps the root
+        # deterministic across agent reuse (same principle as matrix patch 4.1).
+        for col in self._ordered_columns(position, None):
             child = position.played(col)
             score = -self._negamax(child, depth - 1, -beta, -alpha, ply=1)
             # As in the corrected matrix engine, fail-low values are bounds and

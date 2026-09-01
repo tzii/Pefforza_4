@@ -13,10 +13,20 @@ from pefforza.agent.evaluate import (
     model_agent,
     random_agent,
 )
-from pefforza.agent.minimax import impossible_agent, minimax_agent
+from pefforza.agent.minimax import (
+    impossible_agent,
+    tactical_safety_net,
+)
+from pefforza.agent.search import BitboardSearchAgent
 from pefforza.constants import DEFAULT_MODEL_PATH
 
 logger = logging.getLogger(__name__)
+
+# Search depth of the bitboard `hard` backend. Depth 8 keeps a move well
+# under ~50 ms on commodity hardware (see scripts/benchmark_search.py) so the
+# GUI stays responsive without a worker thread; the matrix baseline needed
+# for comparison remains available via pefforza.agent.minimax.
+HARD_BITBOARD_DEPTH = 8
 
 
 @dataclass(frozen=True)
@@ -24,6 +34,18 @@ class Difficulty:
     name: str
     description: str
     factory: Callable[..., Agent]
+
+
+def bitboard_agent(depth: int = HARD_BITBOARD_DEPTH, seed: int | None = None) -> Agent:
+    """Bitboard alpha-beta agent - the ``hard`` backend.
+
+    Same heuristic semantics as the matrix engine (pinned by the differential
+    tests in ``tests/test_bitboard_search.py``) at a fraction of the cost,
+    thanks to integer board operations and a transposition table. The engine
+    is deterministic; ``seed`` is accepted for registry uniformity and ignored.
+    """
+    engine = BitboardSearchAgent(depth=depth, use_tt=True)
+    return tactical_safety_net(engine.select)
 
 
 # The neural tier needs the model path at build time, so it's handled
@@ -41,8 +63,11 @@ DIFFICULTIES: dict[str, Difficulty] = {
     ),
     "hard": Difficulty(
         "hard",
-        "Minimax depth 5 with alpha-beta pruning. Sees several moves ahead.",
-        lambda seed=None: minimax_agent(depth=5, seed=seed),
+        (
+            f"Bitboard alpha-beta search, depth {HARD_BITBOARD_DEPTH} (same heuristic "
+            "as the matrix baseline, an order of magnitude faster)."
+        ),
+        bitboard_agent,
     ),
     "impossible": Difficulty(
         "impossible",
@@ -103,6 +128,8 @@ __all__ = [
     "DIFFICULTIES",
     "DIFFICULTY_NAMES",
     "Difficulty",
+    "HARD_BITBOARD_DEPTH",
+    "bitboard_agent",
     "build_opponent",
     "describe_difficulties",
 ]
