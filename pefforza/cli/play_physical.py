@@ -29,6 +29,7 @@ from pefforza.agent.difficulty import (
 from pefforza.constants import DEFAULT_MODEL_PATH
 from pefforza.rules import available_columns, check_winner, swap_perspective
 from pefforza.vision.board_detector import BoardDetector
+from pefforza.vision.validation import BoardStateValidator
 
 logger = logging.getLogger(__name__)
 
@@ -90,13 +91,14 @@ def main(argv: list[str] | None = None) -> int:
         agent = build_opponent(args.difficulty, seed=args.seed, model_path=args.model)
 
         detector = BoardDetector()
+        validator = BoardStateValidator()
         print("\nStarting calibration: click the 4 corners of the board. Press 'q' to abort.")
         print("Order doesn't matter - we auto-detect TL/TR/BR/BL.")
         if not detector.calibrate(cap, flip=True):
             logger.error("Calibration failed or cancelled.")
             return 1
 
-        print("Controls: [SPACE] analyze | [q] quit")
+        print("Controls: [SPACE] analyze | [r] reset board tracking | [q] quit")
         last_recommendation: int | None = None
         game_over_message: str | None = None
 
@@ -110,10 +112,28 @@ def main(argv: list[str] | None = None) -> int:
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
+            if key == ord("r"):
+                validator.reset()
+                last_recommendation = None
+                game_over_message = None
+                print("Board tracking reset: the next analyzed state starts a new history.")
             if key == ord(" "):
                 grid, _ = detector.process_frame(frame)
                 if grid is None:
                     print("Could not process board; check calibration.")
+                    continue
+                check = validator.accept(grid)
+                if not check.ok:
+                    # A misread (hand occlusion, mid-drop token, glare) must
+                    # never reach the AI as a real position.
+                    print(f"Board rejected: {check.reason}.")
+                    print("Let the board settle and press SPACE again.")
+                elif check.reason is not None:
+                    # Informational accept, e.g. new game detected after the
+                    # board was cleared. Press SPACE again to get a move.
+                    print(f"Board accepted: {check.reason}.")
+                    last_recommendation = None
+                    game_over_message = None
                 else:
                     print("\nDetected board:")
                     print(grid)
