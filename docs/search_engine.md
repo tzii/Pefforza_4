@@ -4,10 +4,10 @@ Pefforza currently keeps two search paths side by side.
 
 ## Matrix baseline
 
-`pefforza.agent.minimax.MinimaxAgent` remains the engine used by the public
-`hard` and `impossible` difficulty tiers. Its root alpha-beta handling, mate
-distance scoring, and iterative-deepening deadline were corrected before any
-representation rewrite.
+`pefforza.agent.minimax.MinimaxAgent` is the correctness baseline and the
+engine behind the `impossible` tier (time-budgeted iterative deepening). Its
+root alpha-beta handling, mate distance scoring, and iterative-deepening
+deadline were corrected before any representation rewrite.
 
 Important invariants:
 
@@ -18,11 +18,16 @@ Important invariants:
 
 ## Bitboard path
 
-`pefforza.agent.search` is the in-progress replacement/search laboratory.
+`pefforza.agent.search` backs the public `hard` tier
+(`pefforza.agent.difficulty.bitboard_agent`, depth 8) and hosts the exact
+solver prototype.
 
 - `BitPosition` uses seven bits per column: six playable cells and one sentinel;
 - `BitboardSearchAgent` keeps the legacy heuristic semantics but uses integer
-  bit operations plus a transposition table;
+  bit operations plus a transposition table. The differential tests in
+  `tests/test_bitboard_search.py` pin it to the matrix baseline on a seeded
+  random corpus (same score, same best move), with and without the TT, and
+  under position mirroring;
 - `PerfectSolver` removes the static heuristic and searches exact terminal
   scores. It is currently intended for validated late/mid-game positions and
   is not yet wired to the public `impossible` tier.

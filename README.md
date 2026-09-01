@@ -107,7 +107,7 @@ The opponent is selectable via `--difficulty`:
 |---|---|---|
 | `easy` | random | Picks any legal column |
 | `medium` | 1-ply heuristic | Win-if-you-can, block-if-you-must, prefer center |
-| `hard` (default) | minimax depth 5 | Sees a few moves ahead with full tactics |
+| `hard` (default) | bitboard alpha-beta depth 8 | Same heuristic as the matrix baseline, an order of magnitude faster |
 | `impossible` | corrected iterative-deepening minimax (~3s deadline) | Strong heuristic search; exact bitboard solver is in progress |
 | `neural` | bundled PPO checkpoint | Strength depends on training |
 

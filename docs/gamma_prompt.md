@@ -77,7 +77,7 @@ Timeline:
 4. Prodotto
 Titolo: "Un solo motore supporta tre esperienze e cinque livelli di sfida."
 Mostra mockup distinti per CLI, GUI Pygame e AR fisica.
-In basso: easy=random, medium=1-ply, hard=minimax depth 5,
+In basso: easy=random, medium=1-ply, hard=bitboard depth 8,
 impossible=iterative deepening, neural=PPO.
 
 5. Architettura
@@ -139,7 +139,7 @@ Mostra vision view e agent view prima/dopo swap_perspective().
 
 13. Qualita
 Titolo: "L'affidabilita non e arrivata alla fine. E diventata una feature."
-Metriche: 108 test, CI su 4 versioni Python, zero hardware nei test.
+Metriche: 150+ test, CI su 4 versioni Python, zero hardware nei test.
 Tre casi:
 - minaccia ignorata -> safety net + watchdog -> test di partite complete;
 - warp ruotato -> corner sorting -> test delle permutazioni;

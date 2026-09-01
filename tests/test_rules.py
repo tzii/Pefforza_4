@@ -13,8 +13,19 @@ from pefforza.rules import (
     is_board_full,
     is_column_full,
     next_open_row,
+    player_to_move,
     swap_perspective,
 )
+
+
+def test_player_to_move_follows_token_counts():
+    b = empty_board()
+    assert player_to_move(b) == 1  # first player opens
+    b[ROWS - 1, 3] = 1
+    assert player_to_move(b) == 2
+    b[ROWS - 1, 2] = 2  # not gravity-legal, but counts are all this helper sees
+    assert player_to_move(b) == 1
+    assert player_to_move(b, first_player=2) == 2  # other move order
 
 
 def test_empty_board_shape_and_dtype():
