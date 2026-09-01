@@ -1,0 +1,3 @@
+# Ensure the bundled PPO checkpoint ships in the sdist as well as the wheel;
+# the wheel path is covered by [tool.setuptools.package-data] in pyproject.toml.
+include pefforza/agent/models/notebook_model.zip

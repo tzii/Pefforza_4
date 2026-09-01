@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least-privilege: read source only. Workflows that need to write must opt in.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Lint & Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      # Pinned by SHA (v4.2.2) per OWASP / OpenSSF guidance for third-party
+      # actions; avoids supply-chain risk of mutable tags.
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # actions/setup-python@v5.4.0
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Upgrade pip tooling
+        run: python -m pip install --upgrade pip wheel
+
+      - name: Install runtime + dev dependencies
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pip install -e .
+
+      - name: Ruff (lint)
+        run: python -m ruff check .
+
+      - name: Ruff (format check)
+        run: python -m ruff format --check .
+
+      - name: Mypy (type check)
+        run: python -m mypy
+
+      - name: Pytest
+        run: python -m pytest --cov=pefforza --cov-report=term-missing
+        env:
+          # Ensure CI never tries to open an audio device.
+          PEFFORZA_TTS_BACKEND: "null"
+
+  # Distribution smoke test: build the wheel, install it into a clean venv,
+  # and verify the console entrypoints plus the bundled PPO checkpoint. This
+  # catches packaging regressions (missing package data, broken console
+  # scripts) that source-checkout tests can't see.
+  wheel-smoke-test:
+    name: Wheel smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Install wheel into a clean venv
+        run: |
+          python -m venv .venv-dist-test
+          .venv-dist-test/bin/pip install --upgrade pip
+          .venv-dist-test/bin/pip install dist/*.whl
+
+      - name: Smoke test entrypoints and bundled model
+        run: |
+          .venv-dist-test/bin/pefforza-cli --help
+          .venv-dist-test/bin/pefforza-gui --help
+          .venv-dist-test/bin/python -c "from pefforza.constants import DEFAULT_MODEL_PATH; assert DEFAULT_MODEL_PATH.is_file(), DEFAULT_MODEL_PATH"

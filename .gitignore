@@ -1,0 +1,57 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Packaging / build artifacts ---
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# --- Tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Project-specific outputs ---
+# Trained model artifacts (large binaries, not source of truth), except the
+# bundled notebook_model.zip: the `neural` difficulty tier and the wheel smoke
+# test depend on it being present in a fresh clone.
+pefforza/agent/models/*.zip
+!pefforza/agent/models/notebook_model.zip
+# Tensorboard / training logs
+pefforza/agent/logs/
+# GUI runtime watchdog log
+watchdog.log
+# Webcam / debug captures
+output.png
+*.tmp.png
+
+# --- Agent tooling worktrees (contains full project copies) ---
+.kilo/worktrees/

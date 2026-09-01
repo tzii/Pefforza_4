@@ -1,0 +1,199 @@
+"""Depth-limited alpha-beta search on :mod:`.bitboard` positions.
+
+This is the first migration step away from the NumPy search engine. It keeps
+its heuristic semantics but adds a transposition table and integer-only board
+operations. It is intentionally *not* wired to the public difficulty registry
+yet; the legacy engine remains the baseline until differential tests and
+benchmarks are stable.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+from enum import Enum, auto
+
+from pefforza.rules import Board
+
+from .bitboard import BitPosition
+from .heuristic import evaluate_bit_position
+
+MATE_SCORE = 100_000
+INF = 1_000_000
+
+
+class Bound(Enum):
+    EXACT = auto()
+    LOWER = auto()
+    UPPER = auto()
+
+
+@dataclass(slots=True)
+class TTEntry:
+    depth: int
+    value: int
+    bound: Bound
+    best_move: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class BitSearchResult:
+    column: int
+    score: int
+    depth: int
+    nodes: int
+    elapsed: float
+    tt_hits: int
+
+
+class BitboardSearchAgent:
+    """Deterministic depth-limited negamax with alpha-beta and a TT."""
+
+    def __init__(self, depth: int = 8, *, use_tt: bool = True) -> None:
+        if depth < 1:
+            raise ValueError("depth must be >= 1")
+        self.depth = depth
+        self.use_tt = use_tt
+        self._table: dict[int, TTEntry] = {}
+        self._nodes = 0
+        self._tt_hits = 0
+
+    def clear_cache(self) -> None:
+        self._table.clear()
+
+    def select(self, board: Board, my_id: int, valid: list[int]) -> int:
+        result = self.search(board, my_id)
+        return result.column if result.column in valid else valid[0]
+
+    def search(self, board: Board, my_id: int, depth: int | None = None) -> BitSearchResult:
+        depth = self.depth if depth is None else depth
+        if depth < 1:
+            raise ValueError("depth must be >= 1")
+
+        position = BitPosition.from_board(board, to_move=my_id)
+        self._nodes = 0
+        self._tt_hits = 0
+        start = time.perf_counter()
+        col, score = self._root(position, depth)
+        return BitSearchResult(
+            column=col,
+            score=score,
+            depth=depth,
+            nodes=self._nodes,
+            elapsed=time.perf_counter() - start,
+            tt_hits=self._tt_hits,
+        )
+
+    def analyze(self, board: Board, my_id: int, depth: int | None = None) -> dict[int, int]:
+        """Return exact full-window depth-limited scores for all legal moves."""
+        depth = self.depth if depth is None else depth
+        position = BitPosition.from_board(board, to_move=my_id)
+        scores: dict[int, int] = {}
+        self._nodes = 0
+        self._tt_hits = 0
+        for col in position.legal_columns():
+            child = position.played(col)
+            scores[col] = -self._negamax(child, depth - 1, -INF, INF, ply=1)
+        return scores
+
+    def _ordered_columns(self, position: BitPosition, tt_move: int | None) -> list[int]:
+        legal = position.legal_columns()
+        if tt_move is not None and tt_move in legal:
+            legal.remove(tt_move)
+            legal.insert(0, tt_move)
+        return legal
+
+    def _root(self, position: BitPosition, depth: int) -> tuple[int, int]:
+        legal = position.legal_columns()
+        if not legal:
+            return -1, 0
+
+        alpha = -INF
+        beta = INF
+        best_col = legal[0]
+        root_entry = self._table.get(position.key) if self.use_tt else None
+
+        for col in self._ordered_columns(position, root_entry.best_move if root_entry else None):
+            child = position.played(col)
+            score = -self._negamax(child, depth - 1, -beta, -alpha, ply=1)
+            # As in the corrected matrix engine, fail-low values are bounds and
+            # must not be treated as exact ties at the root.
+            if score > alpha:
+                alpha = score
+                best_col = col
+
+        if self.use_tt:
+            self._table[position.key] = TTEntry(depth, alpha, Bound.EXACT, best_col)
+        return best_col, alpha
+
+    def _negamax(
+        self,
+        position: BitPosition,
+        depth: int,
+        alpha: int,
+        beta: int,
+        *,
+        ply: int,
+    ) -> int:
+        self._nodes += 1
+
+        if position.previous_player_won:
+            return -MATE_SCORE + ply
+        if position.is_full:
+            return 0
+        if depth == 0:
+            return evaluate_bit_position(position)
+
+        alpha_in = alpha
+        beta_in = beta
+        tt_move: int | None = None
+
+        if self.use_tt:
+            entry = self._table.get(position.key)
+            if entry is not None and entry.depth >= depth:
+                self._tt_hits += 1
+                tt_move = entry.best_move
+                if entry.bound is Bound.EXACT:
+                    return entry.value
+                if entry.bound is Bound.LOWER:
+                    alpha = max(alpha, entry.value)
+                else:
+                    beta = min(beta, entry.value)
+                if alpha >= beta:
+                    return entry.value
+            elif entry is not None:
+                tt_move = entry.best_move
+
+        best = -INF
+        best_col: int | None = None
+        for col in self._ordered_columns(position, tt_move):
+            child = position.played(col)
+            score = -self._negamax(child, depth - 1, -beta, -alpha, ply=ply + 1)
+            if score > best:
+                best = score
+                best_col = col
+            if score > alpha:
+                alpha = score
+            if alpha >= beta:
+                break
+
+        if self.use_tt:
+            if best <= alpha_in:
+                bound = Bound.UPPER
+            elif best >= beta_in:
+                bound = Bound.LOWER
+            else:
+                bound = Bound.EXACT
+            self._table[position.key] = TTEntry(depth, best, bound, best_col)
+
+        return best
+
+
+__all__ = [
+    "BitSearchResult",
+    "BitboardSearchAgent",
+    "Bound",
+    "INF",
+    "MATE_SCORE",
+    "TTEntry",
+]

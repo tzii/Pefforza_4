@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # Keep pinned GitHub Actions current. Dependabot will open PRs that update
+  # the SHA + version-comment together so we don't drift from upstream.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # Python dependencies declared in pyproject.toml / requirements*.txt.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      # Roll non-breaking patch + minor updates together to reduce PR noise
+      # for a small project. Major bumps still arrive as individual PRs so
+      # they can be reviewed in isolation.
+      python-minor:
+        update-types:
+          - "minor"
+          - "patch"

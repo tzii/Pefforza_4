@@ -1,0 +1,193 @@
+"""Physical-board assistant: analyze the live webcam feed on demand.
+
+Press SPACE to capture the current board state, run the chosen AI
+opponent, and overlay the recommended column. Press 'q' to quit.
+
+Difficulty tiers (same as ``play_gui.py``):
+  easy        Random opponent.
+  medium      1-ply heuristic (win/block/center).
+  hard        Minimax depth 5 with alpha-beta. Default.
+  impossible  Iterative-deepening minimax (~3s budget). Strong heuristic search.
+  neural      Wraps the bundled PPO checkpoint.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from pathlib import Path
+
+import cv2
+
+from pefforza.agent.difficulty import (
+    DEFAULT_DIFFICULTY,
+    DIFFICULTY_NAMES,
+    build_opponent,
+    describe_difficulties,
+)
+from pefforza.constants import DEFAULT_MODEL_PATH
+from pefforza.rules import available_columns, check_winner, swap_perspective
+from pefforza.vision.board_detector import BoardDetector
+
+logger = logging.getLogger(__name__)
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Physical Connect 4 assistant.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Difficulty tiers:\n" + describe_difficulties(),
+    )
+    p.add_argument(
+        "--difficulty",
+        choices=DIFFICULTY_NAMES,
+        default=DEFAULT_DIFFICULTY,
+        help=f"AI strength (default: {DEFAULT_DIFFICULTY}).",
+    )
+    p.add_argument(
+        "--model",
+        type=Path,
+        default=DEFAULT_MODEL_PATH,
+        help=f"Checkpoint used by --difficulty=neural (default: {DEFAULT_MODEL_PATH}).",
+    )
+    p.add_argument("--camera", type=int, default=0)
+    p.add_argument(
+        "--ai-color",
+        choices=["red", "yellow"],
+        default=None,
+        help="Skip the interactive prompt by setting the AI color upfront.",
+    )
+    p.add_argument("--seed", type=int, default=None)
+    return p.parse_args(argv)
+
+
+def _prompt_ai_color() -> bool:
+    print("\nWho should the AI play as?")
+    print("  1. Red    (plays first)")
+    print("  2. Yellow (plays second)")
+    while True:
+        choice = input("Enter 1 or 2: ").strip()
+        if choice in {"1", "2"}:
+            return choice == "1"
+        print("Invalid choice.")
+
+
+def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    args = _parse_args(argv)
+
+    cap = cv2.VideoCapture(args.camera)
+    if not cap.isOpened():
+        logger.error("Could not open webcam at index %d.", args.camera)
+        return 2
+
+    try:
+        ai_is_red = (args.ai_color == "red") if args.ai_color else _prompt_ai_color()
+        ai_color_name = "RED" if ai_is_red else "YELLOW"
+        print(f"AI will play as {ai_color_name} at difficulty: {args.difficulty}")
+
+        agent = build_opponent(args.difficulty, seed=args.seed, model_path=args.model)
+
+        detector = BoardDetector()
+        print("\nStarting calibration: click the 4 corners of the board. Press 'q' to abort.")
+        print("Order doesn't matter - we auto-detect TL/TR/BR/BL.")
+        if not detector.calibrate(cap, flip=True):
+            logger.error("Calibration failed or cancelled.")
+            return 1
+
+        print("Controls: [SPACE] analyze | [q] quit")
+        last_recommendation: int | None = None
+        game_over_message: str | None = None
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame = cv2.flip(frame, 1)
+            display = frame.copy()
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                break
+            if key == ord(" "):
+                grid, _ = detector.process_frame(frame)
+                if grid is None:
+                    print("Could not process board; check calibration.")
+                else:
+                    print("\nDetected board:")
+                    print(grid)
+                    winner = check_winner(grid)
+                    if winner != 0:
+                        game_over_message = "RED WINS!" if winner == 1 else "YELLOW WINS!"
+                        last_recommendation = None
+                        print(f"Game over: {game_over_message}")
+                    else:
+                        game_over_message = None
+                        # Translate vision view (1=Red, 2=Yellow) into agent
+                        # view (1 = "self"). If AI plays Yellow, swap.
+                        agent_view = grid.copy() if ai_is_red else swap_perspective(grid)
+                        valid = available_columns(agent_view)
+                        if not valid:
+                            print("Board is full.")
+                        else:
+                            col = agent(agent_view, 1, valid)
+                            if col not in valid:
+                                col = valid[0]
+                            # Two coordinate systems are involved: the arrow
+                            # must be drawn on the flipped display frame (the
+                            # same space the grid was classified in), while
+                            # the human plays on the physical board, whose
+                            # left-to-right order is opposite to the mirrored
+                            # display's.
+                            display_col = col
+                            physical_col = detector.physical_col(display_col)
+                            last_recommendation = display_col
+                            print(
+                                f"AI ({ai_color_name}, {args.difficulty}) "
+                                f"recommends physical column {physical_col + 1}"
+                            )
+
+            cv2.putText(
+                display,
+                f"AI: {ai_color_name} ({args.difficulty}) | SPACE to analyze",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0),
+                2,
+            )
+            if detector.matrix is not None:
+                detector.draw_overlays(display)
+            if last_recommendation is not None:
+                detector.draw_move(display, last_recommendation)
+                recommended = detector.physical_col(last_recommendation) + 1
+                cv2.putText(
+                    display,
+                    f"AI Recommends: physical column {recommended}",
+                    (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1,
+                    (0, 0, 255),
+                    2,
+                )
+            if game_over_message:
+                cv2.putText(
+                    display,
+                    game_over_message,
+                    (10, 100),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.5,
+                    (255, 0, 255),
+                    3,
+                )
+
+            cv2.imshow("Connect 4 - AI Assistant", display)
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
