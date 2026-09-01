@@ -73,6 +73,20 @@ def check_winner(board: Board) -> int:
     return 0
 
 
+def player_to_move(board: Board, first_player: int = AI_PLAYER) -> int:
+    """Return the player id (1 or 2) whose turn it is, derived from counts.
+
+    ``first_player`` (default 1) is assumed to have moved first: when the
+    counts are equal it is due to move again, when it is one ahead the other
+    player is. The board is expected to come from a source that already
+    rejected impossible counts (e.g.
+    :class:`pefforza.vision.validation.BoardStateValidator`).
+    """
+    first = int(np.count_nonzero(board == first_player))
+    second = int(np.count_nonzero(board == 3 - first_player))
+    return first_player if first == second else 3 - first_player
+
+
 def swap_perspective(board: Board) -> Board:
     """Swap player ids 1 <-> 2 without touching empty cells.
 
@@ -93,5 +107,6 @@ __all__ = [
     "is_board_full",
     "is_column_full",
     "next_open_row",
+    "player_to_move",
     "swap_perspective",
 ]

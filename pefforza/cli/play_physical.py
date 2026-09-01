@@ -6,7 +6,7 @@ opponent, and overlay the recommended column. Press 'q' to quit.
 Difficulty tiers (same as ``play_gui.py``):
   easy        Random opponent.
   medium      1-ply heuristic (win/block/center).
-  hard        Minimax depth 5 with alpha-beta. Default.
+  hard        Bitboard alpha-beta search, depth 8. Default.
   impossible  Iterative-deepening minimax (~3s budget). Strong heuristic search.
   neural      Wraps the bundled PPO checkpoint.
 """
@@ -27,7 +27,12 @@ from pefforza.agent.difficulty import (
     describe_difficulties,
 )
 from pefforza.constants import DEFAULT_MODEL_PATH
-from pefforza.rules import available_columns, check_winner, swap_perspective
+from pefforza.rules import (
+    available_columns,
+    check_winner,
+    player_to_move,
+    swap_perspective,
+)
 from pefforza.vision.board_detector import BoardDetector
 from pefforza.vision.validation import BoardStateValidator
 
@@ -127,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
                     # A misread (hand occlusion, mid-drop token, glare) must
                     # never reach the AI as a real position.
                     print(f"Board rejected: {check.reason}.")
-                    print("Let the board settle and press SPACE again.")
+                    print("Let the board settle and press SPACE again, or press 'r' to resync.")
                 elif check.reason is not None:
                     # Informational accept, e.g. new game detected after the
                     # board was cleared. Press SPACE again to get a move.
@@ -144,29 +149,41 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"Game over: {game_over_message}")
                     else:
                         game_over_message = None
-                        # Translate vision view (1=Red, 2=Yellow) into agent
-                        # view (1 = "self"). If AI plays Yellow, swap.
-                        agent_view = grid.copy() if ai_is_red else swap_perspective(grid)
-                        valid = available_columns(agent_view)
-                        if not valid:
-                            print("Board is full.")
-                        else:
-                            col = agent(agent_view, 1, valid)
-                            if col not in valid:
-                                col = valid[0]
-                            # Two coordinate systems are involved: the arrow
-                            # must be drawn on the flipped display frame (the
-                            # same space the grid was classified in), while
-                            # the human plays on the physical board, whose
-                            # left-to-right order is opposite to the mirrored
-                            # display's.
-                            display_col = col
-                            physical_col = detector.physical_col(display_col)
-                            last_recommendation = display_col
+                        # Only consult the AI on its own turn. Vision view is
+                        # 1 = red / 2 = yellow; the validator already proved
+                        # the counts are turn-compatible.
+                        turn = player_to_move(grid)
+                        ai_token = 1 if ai_is_red else 2
+                        if turn != ai_token:
                             print(
-                                f"AI ({ai_color_name}, {args.difficulty}) "
-                                f"recommends physical column {physical_col + 1}"
+                                "Board accepted. Opponent's turn - "
+                                "press SPACE after their move lands."
                             )
+                            last_recommendation = None
+                        else:
+                            # Translate vision view (1=Red, 2=Yellow) into agent
+                            # view (1 = "self"). If AI plays Yellow, swap.
+                            agent_view = grid.copy() if ai_is_red else swap_perspective(grid)
+                            valid = available_columns(agent_view)
+                            if not valid:
+                                print("Board is full.")
+                            else:
+                                col = agent(agent_view, 1, valid)
+                                if col not in valid:
+                                    col = valid[0]
+                                # Two coordinate systems are involved: the arrow
+                                # must be drawn on the flipped display frame (the
+                                # same space the grid was classified in), while
+                                # the human plays on the physical board, whose
+                                # left-to-right order is opposite to the mirrored
+                                # display's.
+                                display_col = col
+                                physical_col = detector.physical_col(display_col)
+                                last_recommendation = display_col
+                                print(
+                                    f"AI ({ai_color_name}, {args.difficulty}) "
+                                    f"recommends physical column {physical_col + 1}"
+                                )
 
             cv2.putText(
                 display,

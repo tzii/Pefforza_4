@@ -2,7 +2,8 @@
 
 Connect 4 has a small branching factor (<=7), so classical search with
 alpha-beta pruning and good move ordering plays strongly at modest depths.
-We use this as the current "hard" / time-budgeted "impossible" baseline while
+This engine backs the time-budgeted "impossible" tier and serves as the
+differential-test baseline for the bitboard engine that powers "hard" while
 an exact bitboard solver is developed separately.
 
 Implementation notes:
