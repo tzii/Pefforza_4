@@ -5,6 +5,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The PR publication flow shells out to "git lfs" even for non-LFS repos;
+# it is absent from the base image, so install it up front.
+if ! git lfs version >/dev/null 2>&1; then
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq git-lfs
+fi
+
 if [ ! -x .venv/bin/python ]; then
     python3 -m venv .venv
 fi
