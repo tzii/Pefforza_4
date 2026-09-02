@@ -140,6 +140,9 @@ def test_shutdown_is_idempotent():
 
 def test_pyttsx3_init_failure_disables_engine(monkeypatch: pytest.MonkeyPatch):
     """When the default backend cannot initialize, the engine goes inert."""
+    # CI runs the suite with PEFFORZA_TTS_BACKEND=null; this test exercises
+    # the default-backend resolution path, so clear the override for now.
+    monkeypatch.delenv("PEFFORZA_TTS_BACKEND", raising=False)
 
     class _RaisingBackend:
         def __init__(self, rate: int = 150) -> None:
@@ -148,8 +151,12 @@ def test_pyttsx3_init_failure_disables_engine(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("pefforza.interaction.voice.Pyttsx3Backend", _RaisingBackend)
     engine = VoiceEngine()
     try:
-        time.sleep(0.1)  # let the worker resolve (and fail) the backend
         engine.speak("never spoken")
+        # The flag flips on the worker thread: poll with a deadline instead
+        # of guessing a fixed sleep.
+        deadline = time.monotonic() + 2.0
+        while engine._available and time.monotonic() < deadline:
+            time.sleep(0.01)
         assert engine._available is False
     finally:
         engine.shutdown()
