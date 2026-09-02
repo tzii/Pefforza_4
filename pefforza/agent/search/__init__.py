@@ -1,8 +1,14 @@
-"""Bitboard search engines under development alongside the matrix baseline."""
+"""Bitboard search engines: the ``hard`` depth engine and the exact solver."""
 
 from .alphabeta import BitboardSearchAgent, BitSearchResult
 from .bitboard import BitPosition
-from .perfect import PerfectResult, PerfectSearchTimeoutError, PerfectSolver
+from .perfect import (
+    PerfectResult,
+    PerfectSearchTimeoutError,
+    PerfectSolver,
+    RootResult,
+    opening_fallback_move,
+)
 
 __all__ = [
     "BitPosition",
@@ -11,4 +17,6 @@ __all__ = [
     "PerfectResult",
     "PerfectSearchTimeoutError",
     "PerfectSolver",
+    "RootResult",
+    "opening_fallback_move",
 ]

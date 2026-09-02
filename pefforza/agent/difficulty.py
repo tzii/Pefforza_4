@@ -13,12 +13,15 @@ from pefforza.agent.evaluate import (
     model_agent,
     random_agent,
 )
-from pefforza.agent.minimax import (
-    impossible_agent,
-    tactical_safety_net,
+from pefforza.agent.minimax import tactical_safety_net
+from pefforza.agent.search import (
+    BitboardSearchAgent,
+    BitPosition,
+    PerfectSolver,
+    opening_fallback_move,
 )
-from pefforza.agent.search import BitboardSearchAgent
 from pefforza.constants import DEFAULT_MODEL_PATH
+from pefforza.rules import Board
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,17 @@ logger = logging.getLogger(__name__)
 # GUI stays responsive without a worker thread; the matrix baseline needed
 # for comparison remains available via pefforza.agent.minimax.
 HARD_BITBOARD_DEPTH = 8
+
+# Time budget of the exact-solver `impossible` backend.
+IMPOSSIBLE_TIME_BUDGET = 3.0
+
+# Below this many played tokens a weak solve never fits an interactive
+# budget in pure Python (the benchmark in scripts/benchmark_search.py shows
+# hard positions all the way up to 20 plies), so the tier plays its safe,
+# deterministic non-losing fallback instead of burning the whole budget.
+# Above the floor the budget itself bounds the response time: provable
+# positions are played optimally, unprovable ones fall back safely.
+EXACT_SOLVE_MIN_PLIES = 14
 
 
 @dataclass(frozen=True)
@@ -46,6 +60,32 @@ def bitboard_agent(depth: int = HARD_BITBOARD_DEPTH, seed: int | None = None) ->
     """
     engine = BitboardSearchAgent(depth=depth, use_tt=True)
     return tactical_safety_net(engine.select)
+
+
+def exact_agent(
+    time_budget: float = IMPOSSIBLE_TIME_BUDGET,
+    seed: int | None = None,
+) -> Agent:
+    """Exact-solver agent - the ``impossible`` backend.
+
+    Weak-solves the position under a real time budget: the move is proven
+    optimal whenever the solver completes (typical from the midgame on) and
+    is a deterministic, never-gifting non-losing fallback in the deep
+    opening. The solver and its transposition table persist across the whole
+    game, so later moves reuse earlier proofs. Deterministic; ``seed`` is
+    accepted for registry uniformity and ignored.
+    """
+    solver = PerfectSolver(table_size_bits=21)
+
+    def select(board: Board, my_id: int, valid: list[int]) -> int:
+        position = BitPosition.from_board(board, to_move=my_id)
+        if position.moves < EXACT_SOLVE_MIN_PLIES:
+            move = opening_fallback_move(position)
+        else:
+            move = solver.solve_root(position, time_budget=time_budget).move
+        return move if move in valid else valid[0]
+
+    return tactical_safety_net(select)
 
 
 # The neural tier needs the model path at build time, so it's handled
@@ -72,10 +112,11 @@ DIFFICULTIES: dict[str, Difficulty] = {
     "impossible": Difficulty(
         "impossible",
         (
-            "Corrected iterative-deepening minimax (~3s deadline, depth 5-10). "
-            "Strong heuristic search."
+            f"Exact bitboard solver, ~{IMPOSSIBLE_TIME_BUDGET:.0f}s budget: proven-optimal "
+            "moves whenever the proof fits; safe non-losing fallback in the "
+            f"deep opening (below {EXACT_SOLVE_MIN_PLIES} plies)."
         ),
-        lambda seed=None: impossible_agent(time_budget=3.0, seed=seed),
+        exact_agent,
     ),
 }
 
@@ -128,8 +169,11 @@ __all__ = [
     "DIFFICULTIES",
     "DIFFICULTY_NAMES",
     "Difficulty",
+    "EXACT_SOLVE_MIN_PLIES",
     "HARD_BITBOARD_DEPTH",
+    "IMPOSSIBLE_TIME_BUDGET",
     "bitboard_agent",
     "build_opponent",
     "describe_difficulties",
+    "exact_agent",
 ]

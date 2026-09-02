@@ -16,6 +16,7 @@ import time
 from array import array
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import Literal
 
 from .bitboard import (
     COLUMN_MASKS,
@@ -91,6 +92,51 @@ class PerfectResult:
     score: int
     nodes: int
     elapsed: float
+
+
+Outcome = Literal["win_now", "proven_win", "proven_draw", "all_lost", "fallback"]
+
+
+@dataclass(frozen=True, slots=True)
+class RootResult:
+    """Result of :meth:`PerfectSolver.solve_root` (anytime interactive play).
+
+    ``outcome`` explains the provenance: ``win_now`` / ``proven_win`` /
+    ``proven_draw`` / ``all_lost`` carry a proof (``proven=True``);
+    ``fallback`` means the budget expired and the move is only guaranteed
+    not to gift an immediate win.
+    """
+
+    move: int
+    outcome: Outcome
+    proven: bool
+    nodes: int
+    elapsed: float
+
+
+def opening_fallback_move(position: BitPosition) -> int:
+    """Deterministic safe move for positions the solver cannot prove in time.
+
+    Takes an immediate win if one exists, else the non-losing move creating
+    the most winning spots (center-first on ties). Returns -1 only when no
+    legal move exists.
+    """
+    wins = position.winning_moves_mask()
+    if wins:
+        return next(col for col in MOVE_ORDER if wins & COLUMN_MASKS[col])
+
+    safe = position.non_losing_moves_mask()
+    candidates = [col for col in MOVE_ORDER if safe & COLUMN_MASKS[col]]
+    if not candidates:
+        legal = [col for col in MOVE_ORDER if position.can_play(col)]
+        return legal[0] if legal else -1
+
+    def spots(col: int) -> int:
+        bit = position.move_bit(col)
+        return compute_winning_positions(position.current | bit, position.mask | bit).bit_count()
+
+    candidates.sort(key=spots, reverse=True)  # stable: ties keep center-first order
+    return candidates[0]
 
 
 class PerfectSolver:
@@ -181,6 +227,65 @@ class PerfectSolver:
             return -1
         best = max(scores.values())
         return next(col for col in MOVE_ORDER if scores.get(col) == best)
+
+    def solve_root(self, position: BitPosition, *, time_budget: float = 3.0) -> RootResult:
+        """Anytime exact move choice for interactive play.
+
+        Root moves are weak-solved in deterministic order (most winning spots
+        first, center-first on ties) under one shared deadline. Returns a
+        proven winning or drawing move whenever a proof fits the budget;
+        otherwise the best-ordered non-losing move - the fallback never gifts
+        an immediate win. This is the search behind the public ``impossible``
+        tier: optimal whenever provable, interactive always.
+        """
+        if time_budget <= 0:
+            raise ValueError("time_budget must be > 0")
+
+        start = time.perf_counter()
+        wins = position.winning_moves_mask()
+        if wins:
+            move = next(col for col in MOVE_ORDER if wins & COLUMN_MASKS[col])
+            return RootResult(move, "win_now", True, 0, time.perf_counter() - start)
+
+        safe = position.non_losing_moves_mask()
+        if safe == 0:
+            # Every move loses; still play one, in deterministic order.
+            legal = [col for col in MOVE_ORDER if position.can_play(col)]
+            move = legal[0] if legal else -1
+            return RootResult(move, "all_lost", True, 0, time.perf_counter() - start)
+
+        ordered = self._ordered_columns(position, safe, None)
+        self._nodes = 0
+        proven_draw: int | None = None
+        timed_out = False
+        self._deadline = start + time_budget
+        try:
+            for col in ordered:
+                try:
+                    self._check_deadline()
+                    value = self._negamax(position.played(col), -1, 1)
+                except PerfectSearchTimeoutError:
+                    timed_out = True
+                    break
+                outcome = (value > 0) - (value < 0)
+                if outcome < 0:  # opponent, to move in the child, loses
+                    return RootResult(
+                        col, "proven_win", True, self._nodes, time.perf_counter() - start
+                    )
+                if outcome == 0 and proven_draw is None:
+                    proven_draw = col
+        finally:
+            self._deadline = None
+
+        elapsed = time.perf_counter() - start
+        if not timed_out:
+            if proven_draw is not None:
+                return RootResult(proven_draw, "proven_draw", True, self._nodes, elapsed)
+            return RootResult(ordered[0], "all_lost", True, self._nodes, elapsed)
+        if proven_draw is not None:
+            # A proven draw beats an unproven move, even on timeout.
+            return RootResult(proven_draw, "proven_draw", True, self._nodes, elapsed)
+        return RootResult(ordered[0], "fallback", False, self._nodes, elapsed)
 
     def _solve_score(self, position: BitPosition, *, weak: bool) -> int:
         self._check_deadline()
@@ -310,7 +415,10 @@ class PerfectSolver:
 
 __all__ = [
     "ExactBound",
+    "Outcome",
     "PerfectResult",
     "PerfectSearchTimeoutError",
     "PerfectSolver",
+    "RootResult",
+    "opening_fallback_move",
 ]

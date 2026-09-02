@@ -2,9 +2,10 @@
 
 Connect 4 has a small branching factor (<=7), so classical search with
 alpha-beta pruning and good move ordering plays strongly at modest depths.
-This engine backs the time-budgeted "impossible" tier and serves as the
-differential-test baseline for the bitboard engine that powers "hard" while
-an exact bitboard solver is developed separately.
+This engine is the differential-test baseline for the bitboard engines that
+power the public ``hard`` (depth-limited) and ``impossible`` (exact solver)
+tiers; :func:`impossible_agent` keeps the old time-budgeted iterative-
+deepening behaviour available for benchmarks and comparisons.
 
 Implementation notes:
 * Boards are mutated in place during search and undone on backtrack to avoid

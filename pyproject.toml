@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pefforza"
-version = "0.4.0"
+version = "0.5.0"
 description = "Connect 4 AI with computer vision, voice, and a PPO agent (Pefforza)."
 readme = "README.md"
 requires-python = ">=3.10"

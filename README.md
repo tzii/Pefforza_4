@@ -108,7 +108,7 @@ The opponent is selectable via `--difficulty`:
 | `easy` | random | Picks any legal column |
 | `medium` | 1-ply heuristic | Win-if-you-can, block-if-you-must, prefer center |
 | `hard` (default) | bitboard alpha-beta depth 8 | Same heuristic as the matrix baseline, an order of magnitude faster |
-| `impossible` | corrected iterative-deepening minimax (~3s deadline) | Strong heuristic search; exact bitboard solver is in progress |
+| `impossible` | exact bitboard solver (~3s budget) | Proven-optimal moves whenever the proof fits; safe non-losing fallback in the deep opening |
 | `neural` | bundled PPO checkpoint | Strength depends on training |
 
 ### Terminal

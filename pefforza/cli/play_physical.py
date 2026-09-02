@@ -7,7 +7,8 @@ Difficulty tiers (same as ``play_gui.py``):
   easy        Random opponent.
   medium      1-ply heuristic (win/block/center).
   hard        Bitboard alpha-beta search, depth 8. Default.
-  impossible  Iterative-deepening minimax (~3s budget). Strong heuristic search.
+  impossible  Exact solver, ~3s budget: proven-optimal once provable, safe
+              non-losing fallback in the deep opening.
   neural      Wraps the bundled PPO checkpoint.
 """
 

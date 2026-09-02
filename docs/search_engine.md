@@ -35,12 +35,36 @@ solver prototype.
   table is symmetry-canonical and fixed-size (packed parallel int arrays,
   replace-always), and move ordering prefers TT hints and moves that create
   the most winning spots. A 12-ply strong solve runs in well under a second
-  (`python scripts/benchmark_search.py`). It is validated for late/mid-game
-  positions and is not yet wired to the public `impossible` tier: the
-  opening still needs a book and/or a native backend (PR5).
+  (`python scripts/benchmark_search.py`).
 
-The exact solver still needs an opening-book/native backend decision before
-it can guarantee interactive response times from the initial position.
+## Exact `impossible` tier and the opening decision (PR5)
+
+The public `impossible` tier is now backed by the exact solver through
+`PerfectSolver.solve_root`, an *anytime* root search: root moves are
+weak-solved in deterministic order (most winning spots first, center-first
+on ties) under one real time budget (~3s). Whenever a proof fits the budget
+the move is game-theoretically optimal; otherwise the tier plays a
+deterministic non-losing fallback (`opening_fallback_move`) that never
+gifts an immediate win. Below `EXACT_SOLVE_MIN_PLIES` (14) the budget is
+not spent at all: no known shallow position fits an interactive weak solve
+in pure Python, so the fallback answers instantly.
+
+The benchmark data behind this design (`--skip-solver` off):
+
+- weak-solve cost is *position-dependent, not monotonic in ply*: a 13-ply
+  position solved in 0.03s, a 14-ply one needed 9.5s, a 16-ply one timed
+  out at 10s while an 18-ply one took 3 nodes. No ply floor can bound the
+  response time - only the time budget can, which is exactly what
+  `solve_root` guarantees;
+- the empty board answers instantly via the fallback (center column),
+  meeting the "interactive from move one" requirement.
+
+Native-backend decision: a C++/pybind11 solver (or the public 8-ply
+opening databases) would push proven-optimal play into the deep opening,
+but the anytime tier is already interactive and never loses by accident of
+budget. The native backend stays deferred until benchmarks show the
+fallback losing winnable games - revisit when the RL harness (PR7) can
+measure exactly that.
 
 ## Reproducible benchmark
 
