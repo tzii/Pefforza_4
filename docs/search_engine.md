@@ -42,29 +42,41 @@ solver prototype.
 The public `impossible` tier is now backed by the exact solver through
 `PerfectSolver.solve_root`, an *anytime* root search: root moves are
 weak-solved in deterministic order (most winning spots first, center-first
-on ties) under one real time budget (~3s). Whenever a proof fits the budget
-the move is game-theoretically optimal; otherwise the tier plays a
-deterministic non-losing fallback (`opening_fallback_move`) that never
-gifts an immediate win. Below `EXACT_SOLVE_MIN_PLIES` (14) the budget is
-not spent at all: no known shallow position fits an interactive weak solve
-in pure Python, so the fallback answers instantly.
+on ties, transposition hint first) under one real time budget (~3s).
+Whenever a proof fits the budget the move is game-theoretically optimal.
+On timeout the fallback is the first *not yet refuted* root move - a move
+already proven losing is never returned while an unresolved one exists -
+and the fallback is *tactically safe*: it avoids an immediate loss whenever
+an avoiding move exists. That is a one-ply guarantee, not a game-theoretic
+one: a drawish position can still be turned into a forced loss by the
+fallback, as long as the loss takes more than one ply to land.
 
-The benchmark data behind this design (`--skip-solver` off):
+Below `EXACT_SOLVE_MIN_PLIES` (14) the tier does not spend the full
+budget: shallow positions almost never fit an interactive weak solve, so
+they are only probed with `OPENING_PROBE_BUDGET` (50 ms) - deliberately
+not a bypass, because rare shallow positions are provable in milliseconds
+and "proven-optimal whenever the proof fits" must hold for them too.
 
-- weak-solve cost is *position-dependent, not monotonic in ply*: a 13-ply
-  position solved in 0.03s, a 14-ply one needed 9.5s, a 16-ply one timed
-  out at 10s while an 18-ply one took 3 nodes. No ply floor can bound the
+The benchmark data behind this design
+(`python scripts/benchmark_search.py --skip-solver` off, agent-like config
+- 3s budget, TT 2^21, sampled ply depths including 13, move sequences
+printed per row):
+
+- weak-solve cost is *position-dependent, not monotonic in ply*: one
+  13-ply position solved in 0.03s, a 14-ply one needed 9.5s, a 16-ply one
+  timed out while an 18-ply one took 3 nodes. No ply floor can bound the
   response time - only the time budget can, which is exactly what
   `solve_root` guarantees;
-- the empty board answers instantly via the fallback (center column),
-  meeting the "interactive from move one" requirement.
+- the empty board answers via the fallback (center column) within the
+  budget, meeting the "interactive from move one" requirement.
 
 Native-backend decision: a C++/pybind11 solver (or the public 8-ply
-opening databases) would push proven-optimal play into the deep opening,
-but the anytime tier is already interactive and never loses by accident of
-budget. The native backend stays deferred until benchmarks show the
-fallback losing winnable games - revisit when the RL harness (PR7) can
-measure exactly that.
+opening databases) would push proven-optimal play into the deep opening.
+The anytime tier is already interactive, but the fallback can still
+squander winnable positions (one-ply safety only), so the native backend
+stays on the roadmap; an exact oracle - the solver itself on deep
+positions, or an opening database - is the right tool to measure how much
+that actually costs in strength.
 
 ## Reproducible benchmark
 

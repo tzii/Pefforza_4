@@ -1,10 +1,10 @@
 """PR5 tests: the exact-solver ``impossible`` tier and its opening strategy.
 
 Covers the anytime ``solve_root`` provenance contract (proven win / draw /
-loss, timeout fallback), the deterministic opening fallback, and the tier
-wiring in the difficulty registry. All positions are chosen so proofs are
-machine-independent: immediate tactics, late-game solves that take
-milliseconds, and fallbacks with budgets that always expire.
+loss, timeout fallback that never returns a refuted move), the deterministic
+tactically-safe fallback, the scaled opening probe, and the tier wiring in
+the difficulty registry. Timeout paths are exercised with a scripted search
+- never with real timing.
 """
 
 from __future__ import annotations
@@ -16,7 +16,17 @@ from pefforza.agent.difficulty import (
     build_opponent,
     exact_agent,
 )
-from pefforza.agent.search import BitPosition, PerfectSolver, opening_fallback_move
+from pefforza.agent.search import (
+    BitPosition,
+    PerfectSearchTimeoutError,
+    PerfectSolver,
+    opening_fallback_move,
+)
+from pefforza.agent.search.bitboard import (
+    COLUMN_MASKS,
+    MOVE_ORDER,
+    compute_winning_positions,
+)
 from pefforza.constants import COLS
 from pefforza.rules import empty_board, next_open_row
 
@@ -50,6 +60,30 @@ def _quiet_positions(seed: int = 7, count: int = 8) -> list[BitPosition]:
             continue
         out.append(pos)
     return out
+
+
+class _ScriptedRootSolver(PerfectSolver):
+    """Overrides the root-level search with scripted outcomes.
+
+    ``script`` maps a root column to the value the child search should
+    report (from the child's perspective) or the string "timeout". Deeper
+    searches would defeat the purpose, so every root child resolves
+    immediately; no real timing is involved.
+    """
+
+    def __init__(self, root: BitPosition, script: dict[int, int | str]) -> None:
+        super().__init__(table_size_bits=8)
+        self._children = {root.played(c).key: c for c in root.legal_columns(center_first=False)}
+        self._script = script
+
+    def _negamax(self, position: BitPosition, alpha: int, beta: int) -> int:
+        col = self._children.get(position.key)
+        if col is None:
+            return super()._negamax(position, alpha, beta)
+        outcome = self._script[col]
+        if outcome == "timeout":
+            raise PerfectSearchTimeoutError("scripted timeout")
+        return int(outcome)
 
 
 # ------------------------------------------------------------ opening fallback
@@ -113,6 +147,73 @@ def test_solve_root_is_deterministic_on_provable_positions():
     assert (a.move, a.outcome, a.nodes) == (b.move, b.outcome, b.nodes)
 
 
+# --------------------------------------------------- timeout-path regression
+def _root_order(pos: BitPosition) -> list[int]:
+    """Mirror of ``PerfectSolver._ordered_columns`` (no TT hint): the scripted
+    tests need to know which root move is searched first."""
+    safe = pos.non_losing_moves_mask()
+    cols = [c for c in MOVE_ORDER if safe & COLUMN_MASKS[c]]
+
+    def spots(col: int) -> int:
+        bit = pos.move_bit(col)
+        return compute_winning_positions(pos.current | bit, pos.mask | bit).bit_count()
+
+    cols.sort(key=spots, reverse=True)  # stable: ties keep center-first order
+    return cols
+
+
+def test_timeout_never_returns_a_refuted_root_move():
+    """Regression for the PR5 review bug: on timeout the fallback was
+    ``ordered[0]``, which could be a root move already *proven losing*.
+
+    Scripted: every root child is a proven loss except one, whose search
+    times out. The only unresolved move is the survivor, so the fallback
+    must be it - never a refuted column, whatever the ordering.
+    """
+    pos = _quiet_positions()[0]
+    legal = pos.legal_columns(center_first=False)
+    assert len(legal) >= 3
+    survivor = legal[2]
+    script: dict[int, int | str] = {col: ("timeout" if col == survivor else 1) for col in legal}
+    result = _ScriptedRootSolver(pos, script).solve_root(pos, time_budget=1.0)
+    assert result.outcome == "fallback"
+    assert not result.proven
+    assert result.move == survivor
+
+
+def test_refuted_then_timeout_returns_first_unresolved():
+    """The exact scenario from the review: the first searched root move is
+    refuted (proven loss), the second times out. The fallback must be the
+    first *unresolved* move - never the refuted one."""
+    pos = next(p for p in _quiet_positions() if len(_root_order(p)) >= 3)
+    order = _root_order(pos)
+    assert len(order) >= 3
+    script: dict[int, int | str] = {
+        col: (1 if i != 1 else "timeout") for i, col in enumerate(order)
+    }
+    result = _ScriptedRootSolver(pos, script).solve_root(pos, time_budget=1.0)
+    assert result.outcome == "fallback"
+    # The interrupted move stays unresolved and is preferred over every
+    # refuted one; the refuted order[0] must never come back.
+    assert result.move == order[1]
+    assert result.move != order[0]
+
+
+def test_timeout_prefers_proven_draw_over_unresolved():
+    """Every root move is a proven draw except the last one searched, which
+    times out: the proven draw found before the deadline must be returned
+    rather than the unresolved survivor."""
+    pos = next(p for p in _quiet_positions() if len(_root_order(p)) >= 3)
+    order = _root_order(pos)
+    assert len(order) >= 3
+    survivor = order[-1]
+    script: dict[int, int | str] = {col: ("timeout" if col == survivor else 0) for col in order}
+    result = _ScriptedRootSolver(pos, script).solve_root(pos, time_budget=1.0)
+    assert result.outcome == "proven_draw"
+    assert result.proven
+    assert result.move != survivor
+
+
 # ------------------------------------------------------------- tier wiring
 def test_impossible_tier_blocks_an_immediate_threat():
     agent = build_opponent("impossible", seed=0)
@@ -132,13 +233,35 @@ def test_impossible_tier_takes_an_immediate_win():
     assert agent(board, 2, valid) == 0
 
 
-def test_impossible_opening_floor_is_instant_and_center_first():
-    """Below the exact-solve floor the tier answers immediately (no budget
-    burned) with the deterministic opening fallback."""
-    agent = exact_agent(time_budget=30.0)  # budget would be huge - floor wins
+def test_impossible_opening_probe_returns_center_quickly():
+    """Shallow positions are probed cheaply (never the full budget): on an
+    empty board the probe cannot prove anything, so the deterministic
+    fallback answers with the center column."""
+    agent = exact_agent(time_budget=30.0)  # full budget would be huge - probe wins
     board = empty_board()
     valid = list(range(COLS))
     assert agent(board, 1, valid) == COLS // 2
+
+
+def test_opening_probe_still_proves_cheap_shallow_positions(monkeypatch):
+    """A shallow position whose proof fits the probe budget must get the
+    proven move, not the fallback - "proven-optimal whenever the proof
+    fits" includes sub-floor positions (PR5 review finding). The probe
+    budget is raised via monkeypatch so the assertion is structural, not
+    a race against CI hardware."""
+    import pefforza.agent.difficulty as difficulty_module
+
+    sequence = [3, 4, 1, 4, 3, 0, 2, 1, 1, 5, 1, 5, 6]
+    pos = BitPosition.from_moves(sequence)
+    assert pos.moves < EXACT_SOLVE_MIN_PLIES
+    board = pos.to_board()
+
+    expected = PerfectSolver(table_size_bits=21).solve_root(pos, time_budget=2.0)
+    assert expected.outcome == "proven_win"
+
+    monkeypatch.setattr(difficulty_module, "OPENING_PROBE_BUDGET", 2.0)
+    agent = exact_agent(time_budget=30.0)  # full budget irrelevant: probe path
+    assert agent(board, pos.to_move, list(range(COLS))) == expected.move
 
 
 def test_impossible_floor_constant_covers_the_deep_opening():
@@ -166,3 +289,11 @@ def test_exact_agent_fallback_respects_column_mask():
     agent = exact_agent(time_budget=0.05)
     board = empty_board()
     assert agent(board, 1, [2]) == 2
+
+
+def test_dunder_version_matches_installed_metadata():
+    from importlib.metadata import version
+
+    import pefforza
+
+    assert pefforza.__version__ == version("pefforza")

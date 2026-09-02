@@ -25,15 +25,19 @@ from pefforza.rules import empty_board
 SOLVER_MOVES = [3, 3, 4, 2, 4, 5, 2, 1, 5, 0, 2, 6]
 
 
-def _quiet_position(rng: random.Random, plies: int) -> BitPosition:
-    """Random non-terminal position with no immediate win or forced loss."""
+def _quiet_position(rng: random.Random, plies: int) -> tuple[BitPosition, list[int]]:
+    """Random non-terminal position (and its move list) with no immediate
+    win or forced loss. The printed list makes each row reproducible."""
     while True:
         pos = BitPosition.empty()
+        moves: list[int] = []
         for _ in range(plies):
             legal = pos.legal_columns(center_first=False)
             if not legal:
                 break
-            pos = pos.played(rng.choice(legal))
+            col = rng.choice(legal)
+            pos = pos.played(col)
+            moves.append(col)
             if pos.previous_player_won:
                 break
         if (
@@ -42,28 +46,31 @@ def _quiet_position(rng: random.Random, plies: int) -> BitPosition:
             and not pos.winning_moves_mask()
             and pos.non_losing_moves_mask()
         ):
-            return pos
+            return pos, moves
 
 
 def benchmark_opening(budget: float, samples_per_ply: int) -> None:
+    """Decision data for the opening strategy, in the agent's own config
+    (same budget class and TT size as pefforza.agent.difficulty.exact_agent)."""
     print()
-    print(f"opening decision data (weak solve, budget {budget:.0f}s per position):")
+    print(f"opening decision data (weak solve, budget {budget:.0f}s, TT 2^21):")
     rng = random.Random(4242)
     solved_within_budget = 0
     total = 0
-    for plies in (12, 14, 16, 18, 20):
+    for plies in (12, 13, 14, 16, 18, 20):
         for _ in range(samples_per_ply):
-            pos = _quiet_position(rng, plies)
-            solver = PerfectSolver(table_size_bits=20)
+            pos, moves = _quiet_position(rng, plies)
+            sequence = "".join(str(c + 1) for c in moves)
+            solver = PerfectSolver(table_size_bits=21)
             try:
                 result = solver.solve(pos, weak=True, time_budget=budget)
                 print(
-                    f"  ply={plies}: score={result.score} nodes={result.nodes} "
-                    f"elapsed={result.elapsed:.2f}s"
+                    f"  ply={plies} moves={sequence}: score={result.score} "
+                    f"nodes={result.nodes} elapsed={result.elapsed:.2f}s"
                 )
                 solved_within_budget += 1
             except PerfectSearchTimeoutError:
-                print(f"  ply={plies}: TIMEOUT >{budget:.0f}s")
+                print(f"  ply={plies} moves={sequence}: TIMEOUT >{budget:.0f}s")
             total += 1
     print(f"  solved within budget: {solved_within_budget}/{total}")
     print("  (cost is position-dependent, not monotonic in ply - the tier's")
@@ -72,7 +79,7 @@ def benchmark_opening(budget: float, samples_per_ply: int) -> None:
     print()
     print("anytime solve_root on the empty board (worst interactive case):")
     for budget_s in (0.5, 3.0):
-        solver = PerfectSolver(table_size_bits=20)
+        solver = PerfectSolver(table_size_bits=21)
         result = solver.solve_root(BitPosition.empty(), time_budget=budget_s)
         print(
             f"  budget={budget_s}s: move={result.move} outcome={result.outcome} "
@@ -92,8 +99,8 @@ def main() -> None:
     parser.add_argument(
         "--opening-budget",
         type=float,
-        default=10.0,
-        help="Per-position budget for the opening section.",
+        default=3.0,
+        help="Per-position budget for the opening section (agent default: 3s).",
     )
     parser.add_argument(
         "--opening-samples", type=int, default=2, help="Positions sampled per ply depth."

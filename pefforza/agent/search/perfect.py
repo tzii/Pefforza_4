@@ -1,13 +1,16 @@
-"""Exact Connect Four solver foundation.
+"""Exact Connect Four solver backing the public ``impossible`` tier.
 
 Phase 2 of the solver roadmap: threat pruning and move generation use the
 pure bit-mask formulas (immediate-win detection, forced replies, double-
 threat losses, and exclusion of moves that open an opponent win), the
 transposition table is symmetry-canonical and fixed-size, and move ordering
 prefers the transposition move and the moves creating the most winning
-spots. It is deliberately not connected to the public ``impossible`` tier
-yet: solving the hardest opening positions interactively still needs an
-opening book and/or a native backend.
+spots. :meth:`PerfectSolver.solve_root` turns the solver into an anytime
+player - proven-optimal moves whenever a proof fits the time budget, with a
+deterministic tactically-safe fallback (never gifts an immediate win) when
+it does not. An exact opening book / native backend remains the known next
+step for proven play from move one; see docs/search_engine.md for the
+benchmark decision.
 """
 
 from __future__ import annotations
@@ -17,6 +20,8 @@ from array import array
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Literal
+
+from pefforza.constants import COLS
 
 from .bitboard import (
     COLUMN_MASKS,
@@ -115,11 +120,13 @@ class RootResult:
 
 
 def opening_fallback_move(position: BitPosition) -> int:
-    """Deterministic safe move for positions the solver cannot prove in time.
+    """Deterministic tactically-safe move for positions without proof time.
 
-    Takes an immediate win if one exists, else the non-losing move creating
-    the most winning spots (center-first on ties). Returns -1 only when no
-    legal move exists.
+    Takes an immediate win if one exists, else a move that does not gift the
+    opponent an immediate win (one-ply safety), preferring the ones creating
+    the most winning spots (center-first on ties). This is *not* a
+    game-theoretic guarantee: it only avoids an immediate loss whenever an
+    avoiding move exists. Returns -1 only when no legal move exists.
     """
     wins = position.winning_moves_mask()
     if wins:
@@ -232,11 +239,13 @@ class PerfectSolver:
         """Anytime exact move choice for interactive play.
 
         Root moves are weak-solved in deterministic order (most winning spots
-        first, center-first on ties) under one shared deadline. Returns a
-        proven winning or drawing move whenever a proof fits the budget;
-        otherwise the best-ordered non-losing move - the fallback never gifts
-        an immediate win. This is the search behind the public ``impossible``
-        tier: optimal whenever provable, interactive always.
+        first, center-first on ties, transposition hint first) under one
+        shared deadline. Returns a proven winning or drawing move whenever a
+        proof fits the budget. On timeout the fallback is the first *not yet
+        refuted* move in that order - a root move already proven losing is
+        never returned while an unresolved one exists - and the fallback is
+        still tactically safe: it never gifts an immediate win. Optimal
+        whenever provable, interactive always.
         """
         if time_budget <= 0:
             raise ValueError("time_budget must be > 0")
@@ -254,9 +263,10 @@ class PerfectSolver:
             move = legal[0] if legal else -1
             return RootResult(move, "all_lost", True, 0, time.perf_counter() - start)
 
-        ordered = self._ordered_columns(position, safe, None)
+        ordered = self._ordered_columns(position, safe, self._root_hint(position))
         self._nodes = 0
         proven_draw: int | None = None
+        proven_losing: set[int] = set()
         timed_out = False
         self._deadline = start + time_budget
         try:
@@ -272,8 +282,13 @@ class PerfectSolver:
                     return RootResult(
                         col, "proven_win", True, self._nodes, time.perf_counter() - start
                     )
-                if outcome == 0 and proven_draw is None:
-                    proven_draw = col
+                if outcome == 0:
+                    if proven_draw is None:
+                        proven_draw = col
+                else:
+                    # The opponent wins from the child: this root move is
+                    # refuted and must never be the timeout fallback.
+                    proven_losing.add(col)
         finally:
             self._deadline = None
 
@@ -283,9 +298,28 @@ class PerfectSolver:
                 return RootResult(proven_draw, "proven_draw", True, self._nodes, elapsed)
             return RootResult(ordered[0], "all_lost", True, self._nodes, elapsed)
         if proven_draw is not None:
-            # A proven draw beats an unproven move, even on timeout.
+            # A proven draw beats any unproven move, even on timeout.
             return RootResult(proven_draw, "proven_draw", True, self._nodes, elapsed)
-        return RootResult(ordered[0], "fallback", False, self._nodes, elapsed)
+        unresolved = [col for col in ordered if col not in proven_losing]
+        move = unresolved[0] if unresolved else ordered[0]
+        return RootResult(move, "fallback", False, self._nodes, elapsed)
+
+    def _root_hint(self, position: BitPosition) -> int | None:
+        """Best-move hint for root ordering, mirror-corrected.
+
+        The persistent table may hold an entry for this exact position from
+        an earlier turn of the same game; reusing its move as the first root
+        candidate can be the difference between proving in budget and
+        falling back. Symmetry-canonical entries store the move in the
+        canonical orientation, so it is mirrored back when this position is
+        itself the mirrored variant. Hint only - it can never change scores.
+        """
+        canonical = position.key == position.canonical_key
+        entry = self._table.get(position.canonical_key)
+        if entry is None or entry[2] is None:
+            return None
+        move = entry[2]
+        return move if canonical else COLS - 1 - move
 
     def _solve_score(self, position: BitPosition, *, weak: bool) -> int:
         self._check_deadline()
@@ -378,10 +412,16 @@ class PerfectSolver:
                 return beta
 
         key = position.canonical_key
+        canonical = position.key == key
         entry = self._table.get(key)
         tt_move: int | None = None
         if entry is not None:
             value, bound, tt_move = entry
+            # Entries store the best move in the canonical orientation; this
+            # position may be the mirrored variant, in which case the hint
+            # must be mirrored back to stay a useful ordering hint.
+            if tt_move is not None and not canonical:
+                tt_move = COLS - 1 - tt_move
             if bound is ExactBound.EXACT:
                 return value
             if bound is ExactBound.LOWER:
@@ -409,7 +449,9 @@ class PerfectSolver:
             bound = ExactBound.LOWER
         else:
             bound = ExactBound.EXACT
-        self._table.put(key, best, bound, best_col)
+        # Mirror the stored move into the canonical orientation (see _root_hint).
+        store_move = best_col if best_col is None or canonical else COLS - 1 - best_col
+        self._table.put(key, best, bound, store_move)
         return best
 
 
