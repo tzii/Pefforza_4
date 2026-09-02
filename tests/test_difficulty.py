@@ -54,3 +54,34 @@ def test_describe_difficulties_lists_all_tiers():
     text = describe_difficulties()
     for name in ("easy", "medium", "hard", "impossible", "neural"):
         assert name in text
+
+
+class _StubModel:
+    """Minimal stand-in for a loaded SB3 PPO model."""
+
+    def predict(self, obs, deterministic: bool = True):  # noqa: ARG002
+        import numpy as np
+
+        # SB3 returns a 0-d action array for a single observation.
+        return np.array(3), None
+
+
+def test_neural_uses_model_when_checkpoint_loads(tmp_path: Path, monkeypatch):
+    dummy = tmp_path / "model.zip"
+    dummy.write_bytes(b"stub")
+    monkeypatch.setattr("stable_baselines3.PPO.load", staticmethod(lambda path: _StubModel()))
+    agent = build_opponent("neural", model_path=dummy)
+    assert agent(empty_board(), 1, list(range(COLS))) == 3
+
+
+def test_neural_falls_back_to_heuristic_when_load_fails(tmp_path: Path, monkeypatch):
+    """A corrupt checkpoint must degrade to the heuristic, never crash."""
+    dummy = tmp_path / "model.zip"
+    dummy.write_bytes(b"stub")
+
+    def _explode(path):
+        raise RuntimeError("corrupt checkpoint")
+
+    monkeypatch.setattr("stable_baselines3.PPO.load", staticmethod(_explode))
+    agent = build_opponent("neural", model_path=dummy)
+    assert 0 <= agent(empty_board(), 1, list(range(COLS))) < COLS

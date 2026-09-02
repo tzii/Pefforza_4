@@ -117,3 +117,39 @@ def test_env_var_selects_null_backend(monkeypatch: pytest.MonkeyPatch):
         time.sleep(0.05)
     finally:
         engine.shutdown()
+
+
+def test_low_confidence_commentary_says_tricky():
+    backend = RecordingBackend()
+    engine = _make_engine(backend)
+    try:
+        engine.play_move_commentary(0, confidence=0.2)
+        assert backend.wait()
+    finally:
+        engine.shutdown()
+    assert "column 1" in backend.utterances[0]
+    assert "Hmm, tricky." in backend.utterances[0]
+
+
+def test_shutdown_is_idempotent():
+    engine = _make_engine(RecordingBackend())
+    engine.shutdown()
+    # Second shutdown: worker thread already gone, must return quietly.
+    engine.shutdown()
+
+
+def test_pyttsx3_init_failure_disables_engine(monkeypatch: pytest.MonkeyPatch):
+    """When the default backend cannot initialize, the engine goes inert."""
+
+    class _RaisingBackend:
+        def __init__(self, rate: int = 150) -> None:
+            raise RuntimeError("no audio device")
+
+    monkeypatch.setattr("pefforza.interaction.voice.Pyttsx3Backend", _RaisingBackend)
+    engine = VoiceEngine()
+    try:
+        time.sleep(0.1)  # let the worker resolve (and fail) the backend
+        engine.speak("never spoken")
+        assert engine._available is False
+    finally:
+        engine.shutdown()

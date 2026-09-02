@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
+import pytest
 
 from pefforza.agent.minimax import (
     MinimaxAgent,
@@ -19,6 +20,19 @@ from pefforza.agent.minimax import (
 )
 from pefforza.constants import COLS, ROWS
 from pefforza.rules import empty_board
+
+# Checkerboard fill: no 4-in-a-row in any direction.
+_CHECKERBOARD = np.array(
+    [
+        [1, 2, 1, 2, 1, 2, 1],
+        [1, 2, 1, 2, 1, 2, 1],
+        [2, 1, 2, 1, 2, 1, 2],
+        [2, 1, 2, 1, 2, 1, 2],
+        [1, 2, 1, 2, 1, 2, 1],
+        [1, 2, 1, 2, 1, 2, 1],
+    ],
+    dtype=np.int8,
+)
 
 
 def test_takes_immediate_win():
@@ -162,3 +176,47 @@ def test_time_budget_is_a_real_deadline_and_reports_total_elapsed():
     # second overrun behavior.
     assert wall < 0.20
     assert abs(result.elapsed - wall) < 0.03
+
+
+def test_depth_below_one_is_rejected():
+    with pytest.raises(ValueError):
+        MinimaxAgent(depth=0)
+    with pytest.raises(ValueError):
+        MinimaxAgent(depth=2).search(empty_board(), my_id=1, depth=0)
+
+
+def test_time_budget_arguments_are_validated():
+    agent = MinimaxAgent(depth=2, seed=0)
+    board = empty_board()
+    with pytest.raises(ValueError):
+        agent.search_with_time_budget(board, 1, time_budget=0)
+    with pytest.raises(ValueError):
+        agent.search_with_time_budget(board, 1, time_budget=0.1, min_depth=0)
+    with pytest.raises(ValueError):
+        agent.search_with_time_budget(board, 1, time_budget=0.1, min_depth=4, max_depth=3)
+
+
+def test_full_board_search_returns_sentinel():
+    """A full board has no legal move: report the (-1, 0) sentinel."""
+    result = MinimaxAgent(depth=2, seed=0).search(_CHECKERBOARD, my_id=1, depth=2)
+    assert result.column == -1
+    assert result.score == 0
+
+
+def test_tiny_budget_still_returns_a_legal_column():
+    """Even a budget too small for depth 1 must publish a legal move."""
+    agent = MinimaxAgent(depth=4, seed=0)
+    result = agent.search_with_time_budget(
+        empty_board(), my_id=1, time_budget=1e-6, min_depth=1, max_depth=1
+    )
+    assert 0 <= result.column < COLS
+
+
+def test_evaluate_position_penalizes_opponent_threats():
+    """A 3-in-a-row for the opponent scores negative from our perspective."""
+    board = empty_board()
+    board[ROWS - 1, 0:3] = 2
+    assert evaluate_position(board, 1) == -4
+    # Mirror image: the threat owner also banks the overlapping [2,2,0,0]
+    # window bonus (+2) plus the threat window (+5).
+    assert evaluate_position(board, 2) == 7
