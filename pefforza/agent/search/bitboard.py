@@ -49,11 +49,35 @@ def has_alignment(bits: int) -> bool:
     return False
 
 
-def _iter_single_bits(mask: int) -> Iterable[int]:
-    while mask:
-        bit = mask & -mask
-        yield bit
-        mask ^= bit
+def compute_winning_positions(bits: int, mask: int) -> int:
+    """Return the empty cells that would complete a four-in-a-row of ``bits``.
+
+    Pure bit-mask formula (Pascal Pons): OR the completion cells of the four
+    directions, then keep only cells that are currently empty. Cells may be
+    at not-yet-playable heights; intersect with ``possible_moves_mask()`` for
+    immediately playable wins.
+    """
+    # Vertical: only the cell above three stacked stones can complete.
+    r = (bits << 1) & (bits << 2) & (bits << 3)
+
+    for shift in (STRIDE, STRIDE - 1, STRIDE + 1):  # horizontal, "/", "\"
+        p = (bits << shift) & (bits << (2 * shift))
+        r |= p & (bits << (3 * shift))
+        r |= p & (bits >> shift)
+        p = (bits >> shift) & (bits >> (2 * shift))
+        r |= p & (bits << shift)
+        r |= p & (bits >> (3 * shift))
+
+    return r & (BOARD_MASK ^ mask)
+
+
+def mirror_bits(bits: int) -> int:
+    """Mirror a board bitmap left-right (column c moves to column COLS-1-c)."""
+    column_local = (1 << ROWS) - 1
+    out = 0
+    for c in range(COLS):
+        out |= ((bits >> (c * STRIDE)) & column_local) << ((COLS - 1 - c) * STRIDE)
+    return out
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +145,18 @@ class BitPosition:
         return self.current + self.mask
 
     @property
+    def canonical_key(self) -> int:
+        """Symmetry-canonical TT key: the position and its mirror share it.
+
+        Connect Four is symmetric under left-right mirroring, so storing
+        results under ``min(key, mirrored key)` shares transpositions between
+        mirrored subtrees - most valuable in the opening.
+        """
+        base = self.current + self.mask
+        flipped = mirror_bits(self.current) + mirror_bits(self.mask)
+        return base if base <= flipped else flipped
+
+    @property
     def is_full(self) -> bool:
         return self.moves >= TOTAL_CELLS
 
@@ -155,37 +191,44 @@ class BitPosition:
             to_move=3 - self.to_move,
         )
 
+    def mirror(self) -> BitPosition:
+        """Left-right mirrored position (strategically equivalent)."""
+        return BitPosition(
+            current=mirror_bits(self.current),
+            mask=mirror_bits(self.mask),
+            moves=self.moves,
+            to_move=self.to_move,
+        )
+
     def winning_moves_mask(self) -> int:
         """Playable cells that win immediately for the current player."""
-        wins = 0
-        for move in _iter_single_bits(self.possible_moves_mask()):
-            if has_alignment(self.current | move):
-                wins |= move
-        return wins
+        return compute_winning_positions(self.current, self.mask) & self.possible_moves_mask()
 
     def winning_columns(self) -> list[int]:
         wins = self.winning_moves_mask()
         return [col for col in MOVE_ORDER if wins & COLUMN_MASKS[col]]
 
     def non_losing_moves_mask(self) -> int:
-        """Moves that do not give the opponent an immediate win.
+        """Moves that win now, or that do not lose on the opponent's next ply.
 
-        Immediate wins are returned directly. Otherwise every legal move is
-        tested by swapping perspective and checking whether the opponent can
-        win on the following ply. This is intentionally simple and exact; the
-        future perfect solver can replace it with the equivalent pure bit-mask
-        formula if profiling shows the need.
+        Standard exact-solver rule set (Pascal Pons): an immediate win is
+        always returned; otherwise, if the opponent has exactly one playable
+        winning cell the reply is forced to it, two or more immediate threats
+        mean the position is already lost (0 is returned), and any move that
+        would make an opponent winning cell playable directly above it is
+        excluded.
         """
         wins = self.winning_moves_mask()
         if wins:
             return wins
-
-        safe = 0
-        for col in self.legal_columns(center_first=False):
-            child = self.played(col)
-            if child.winning_moves_mask() == 0:
-                safe |= self.move_bit(col)
-        return safe
+        possible = self.possible_moves_mask()
+        opponent_win = compute_winning_positions(self.opponent, self.mask)
+        forced = possible & opponent_win
+        if forced:
+            if forced & (forced - 1):  # more than one immediate threat
+                return 0
+            possible = forced
+        return possible & ~(opponent_win >> 1)
 
     def to_board(self) -> Board:
         """Convert back to the public absolute-player NumPy board."""
@@ -213,5 +256,7 @@ __all__ = [
     "TOP_MASKS",
     "TOTAL_CELLS",
     "bit_for_cell",
+    "compute_winning_positions",
     "has_alignment",
+    "mirror_bits",
 ]

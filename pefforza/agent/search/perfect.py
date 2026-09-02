@@ -1,19 +1,29 @@
 """Exact Connect Four solver foundation.
 
-The solver is functional for late/mid-game positions and uses exact terminal
-scores, alpha-beta bounds, a transposition table, and direct-loss pruning. It
-is deliberately not connected to the public ``impossible`` tier yet: solving
-the hardest opening positions interactively still needs stronger move ordering
-and/or an opening book (and may later warrant a native backend).
+Phase 2 of the solver roadmap: threat pruning and move generation use the
+pure bit-mask formulas (immediate-win detection, forced replies, double-
+threat losses, and exclusion of moves that open an opponent win), the
+transposition table is symmetry-canonical and fixed-size, and move ordering
+prefers the transposition move and the moves creating the most winning
+spots. It is deliberately not connected to the public ``impossible`` tier
+yet: solving the hardest opening positions interactively still needs an
+opening book and/or a native backend.
 """
 
 from __future__ import annotations
 
 import time
+from array import array
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from .bitboard import COLUMN_MASKS, MOVE_ORDER, TOTAL_CELLS, BitPosition
+from .bitboard import (
+    COLUMN_MASKS,
+    MOVE_ORDER,
+    TOTAL_CELLS,
+    BitPosition,
+    compute_winning_positions,
+)
 
 
 class PerfectSearchTimeoutError(RuntimeError):
@@ -26,11 +36,54 @@ class ExactBound(Enum):
     UPPER = auto()
 
 
-@dataclass(slots=True)
-class ExactEntry:
-    value: int
-    bound: ExactBound
-    best_move: int | None
+_BOUND_TO_CODE = {ExactBound.EXACT: 0, ExactBound.LOWER: 1, ExactBound.UPPER: 2}
+_BOUND_FROM_CODE = (ExactBound.EXACT, ExactBound.LOWER, ExactBound.UPPER)
+_NO_MOVE_CODE = 0b111
+
+
+class _TranspositionTable:
+    """Fixed-size, replace-always transposition table over parallel int arrays.
+
+    A plain dict grows without bound and pays hashing/object overhead; this
+    table indexes ``key % size`` directly into two ``array('q')`` buffers and
+    stores each entry packed into one int: 6 bits of score, 2 bits of bound,
+    3 bits of best move. Collisions replace the previous entry - standard for
+    game solvers, deterministic for a given size, and no correctness impact
+    because stored values are always sound alpha-beta bounds.
+    """
+
+    __slots__ = ("_keys", "_entries", "_index_mask")
+
+    def __init__(self, size_bits: int) -> None:
+        if not 4 <= size_bits <= 30:
+            raise ValueError("size_bits must be in [4, 30]")
+        size = 1 << size_bits
+        self._index_mask = size - 1
+        # -1 in every key slot marks "empty"; entries start packed as zeroes.
+        self._keys = array("q", b"\xff" * (8 * size))
+        self._entries = array("q", bytes(8 * size))
+
+    def get(self, key: int) -> tuple[int, ExactBound, int | None] | None:
+        index = key & self._index_mask
+        if self._keys[index] != key:
+            return None
+        packed = self._entries[index]
+        move = packed & 0b111
+        return (
+            ((packed >> 5) & 0b111111) - 32,
+            _BOUND_FROM_CODE[(packed >> 3) & 0b11],
+            None if move == _NO_MOVE_CODE else move,
+        )
+
+    def put(self, key: int, value: int, bound: ExactBound, best_move: int | None) -> None:
+        index = key & self._index_mask
+        self._keys[index] = key
+        move = _NO_MOVE_CODE if best_move is None else best_move
+        self._entries[index] = ((value + 32) << 5) | (_BOUND_TO_CODE[bound] << 3) | move
+
+    def clear(self) -> None:
+        self._keys = array("q", b"\xff" * len(self._keys) * 8)
+        self._entries = array("q", bytes(len(self._entries) * 8))
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,8 +96,8 @@ class PerfectResult:
 class PerfectSolver:
     """Exact win/draw/loss solver for legal non-terminal positions."""
 
-    def __init__(self) -> None:
-        self._table: dict[int, ExactEntry] = {}
+    def __init__(self, table_size_bits: int = 20) -> None:
+        self._table = _TranspositionTable(table_size_bits)
         self._nodes = 0
         self._deadline: float | None = None
 
@@ -171,6 +224,17 @@ class PerfectSolver:
         tt_move: int | None,
     ) -> list[int]:
         cols = [c for c in MOVE_ORDER if moves_mask & COLUMN_MASKS[c]]
+
+        def winning_spots(col: int) -> int:
+            bit = position.move_bit(col)
+            after = compute_winning_positions(position.current | bit, position.mask | bit)
+            return after.bit_count()
+
+        # Stable sort: equal winning-spot counts keep the center-first order.
+        cols.sort(key=winning_spots, reverse=True)
+        # Note: with a symmetry-canonical TT the stored best move may come
+        # from the mirrored variant; it is only an ordering hint, so using it
+        # unchanged can never change scores.
         if tt_move is not None and tt_move in cols:
             cols.remove(tt_move)
             cols.insert(0, tt_move)
@@ -208,18 +272,19 @@ class PerfectSolver:
             if alpha >= beta:
                 return beta
 
-        entry = self._table.get(position.key)
+        key = position.canonical_key
+        entry = self._table.get(key)
         tt_move: int | None = None
         if entry is not None:
-            tt_move = entry.best_move
-            if entry.bound is ExactBound.EXACT:
-                return entry.value
-            if entry.bound is ExactBound.LOWER:
-                alpha = max(alpha, entry.value)
+            value, bound, tt_move = entry
+            if bound is ExactBound.EXACT:
+                return value
+            if bound is ExactBound.LOWER:
+                alpha = max(alpha, value)
             else:
-                beta = min(beta, entry.value)
+                beta = min(beta, value)
             if alpha >= beta:
-                return entry.value
+                return value
 
         best = -100
         best_col: int | None = None
@@ -239,7 +304,7 @@ class PerfectSolver:
             bound = ExactBound.LOWER
         else:
             bound = ExactBound.EXACT
-        self._table[position.key] = ExactEntry(best, bound, best_col)
+        self._table.put(key, best, bound, best_col)
         return best
 
 

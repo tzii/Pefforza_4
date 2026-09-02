@@ -29,12 +29,18 @@ solver prototype.
   random corpus (same score, same best move), with and without the TT, and
   under position mirroring;
 - `PerfectSolver` removes the static heuristic and searches exact terminal
-  scores. It is currently intended for validated late/mid-game positions and
-  is not yet wired to the public `impossible` tier.
+  scores. Phase 2 is complete: move generation uses the pure bit-mask
+  formulas (immediate wins, forced replies to single threats, double-threat
+  losses, exclusion of moves that open an opponent win), the transposition
+  table is symmetry-canonical and fixed-size (packed parallel int arrays,
+  replace-always), and move ordering prefers TT hints and moves that create
+  the most winning spots. A 12-ply strong solve runs in well under a second
+  (`python scripts/benchmark_search.py`). It is validated for late/mid-game
+  positions and is not yet wired to the public `impossible` tier: the
+  opening still needs a book and/or a native backend (PR5).
 
-The exact solver still needs stronger move ordering and an opening-book/native
-backend decision before it can guarantee interactive response times from the
-initial position.
+The exact solver still needs an opening-book/native backend decision before
+it can guarantee interactive response times from the initial position.
 
 ## Reproducible benchmark
 
