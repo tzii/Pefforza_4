@@ -98,4 +98,5 @@ jobs:
         run: |
           .venv-dist-test/bin/pefforza-cli --help
           .venv-dist-test/bin/pefforza-gui --help
+          .venv-dist-test/bin/pefforza-physical --help
           .venv-dist-test/bin/python -c "from pefforza.constants import DEFAULT_MODEL_PATH; assert DEFAULT_MODEL_PATH.is_file(), DEFAULT_MODEL_PATH"

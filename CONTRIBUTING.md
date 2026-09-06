@@ -4,11 +4,11 @@ Thanks for your interest in Pefforza. Quick guide so your changes land smoothly.
 
 ## Setup
 
+Follow the [README quick start](README.md#quick-start) for your operating
+system, then install the development tools in that activated environment:
+
 ```bash
-python -m venv .venv
-.venv\Scripts\activate         # Windows
-source .venv/bin/activate      # macOS / Linux
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 ```
 
 ## Workflow
@@ -20,10 +20,18 @@ pip install -e ".[dev]"
    ```bash
    python -m ruff check .
    python -m ruff format --check .
+   python -m mypy
    python -m pytest --cov=pefforza
    ```
 
 4. Open a pull request. CI runs the same checks on Python 3.10–3.13.
+
+For desktop changes, exercise a move and AI reply, undo while thinking, hints,
+replay after a result, resized input, and quitting. `python scripts/preview_gui.py`
+runs the real renderer in a local browser remote when no native display is
+available. Capture fresh screenshots; do not present mockups as running UI.
+Camera/audio changes need synthetic regression tests plus clearly stated
+hardware verification limits. See the [audit checklist](docs/PROJECT_STATUS.md).
 
 ## Style
 

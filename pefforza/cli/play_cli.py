@@ -5,7 +5,7 @@ impossible / neural). See :mod:`pefforza.agent.difficulty` for what each
 tier means.
 
 Pre-validates the human's column choice so a typo never ends the game,
-and falls back to a random valid action if an agent ever returns an
+and falls back to the first valid action if an agent ever returns an
 illegal column.
 """
 
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import random
 import sys
 import time
 from pathlib import Path
@@ -95,9 +94,6 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = _parse_args(argv)
 
-    if args.seed is not None:
-        random.seed(args.seed)
-
     env = Connect4Env(render_mode=None)
     opponent = build_opponent(args.difficulty, seed=args.seed, model_path=args.model)
     print(f"Playing against difficulty: {args.difficulty}")
@@ -133,8 +129,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print("AI is thinking...")
                 t0 = time.perf_counter()
-                action = opponent(env.board, env.current_player, valid)
-                if action not in valid:
+                action = opponent(env.board.copy(), env.current_player, valid.copy())
+                if not env.action_space.contains(action) or action not in valid:
                     action = valid[0]
                 think_time = time.perf_counter() - t0
                 last_mover = "AI"
@@ -165,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\nGame interrupted.")
         return 130
     finally:
+        env.close()
         if voice is not None:
             voice.shutdown()
     return 0

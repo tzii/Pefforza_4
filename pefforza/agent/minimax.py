@@ -176,6 +176,10 @@ class MinimaxAgent:
 
         start = time.perf_counter()
         deadline = start + time_budget
+        winner = check_winner(board)
+        if winner:
+            score = _MATE_SCORE if winner == my_id else -_MATE_SCORE
+            return SearchResult(-1, score, 0, 0, time.perf_counter() - start)
         valid = _ordered_valid(board)
         if not valid:
             return SearchResult(-1, 0, 0, 0, time.perf_counter() - start)
@@ -202,6 +206,7 @@ class MinimaxAgent:
                     deadline=deadline,
                 )
             except _SearchTimeoutError:
+                total_nodes += self._nodes
                 break
             total_nodes += candidate.nodes
             best = candidate
@@ -250,6 +255,9 @@ class MinimaxAgent:
         move known to be worse than the current principal variation. We only
         replace the root move when a child strictly improves alpha.
         """
+        winner = check_winner(board)
+        if winner:
+            return -1, _MATE_SCORE if winner == player else -_MATE_SCORE
         valid = _ordered_valid(board)
         if not valid:
             return -1, 0

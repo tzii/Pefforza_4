@@ -31,6 +31,7 @@ from pefforza.constants import DEFAULT_MODEL_PATH
 from pefforza.rules import (
     available_columns,
     check_winner,
+    is_board_full,
     player_to_move,
     swap_perspective,
 )
@@ -85,11 +86,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
 
     cap = cv2.VideoCapture(args.camera)
-    if not cap.isOpened():
-        logger.error("Could not open webcam at index %d.", args.camera)
-        return 2
-
     try:
+        if not cap.isOpened():
+            logger.error("Could not open webcam at index %d.", args.camera)
+            return 2
         ai_is_red = (args.ai_color == "red") if args.ai_color else _prompt_ai_color()
         ai_color_name = "RED" if ai_is_red else "YELLOW"
         print(f"AI will play as {ai_color_name} at difficulty: {args.difficulty}")
@@ -124,12 +124,13 @@ def main(argv: list[str] | None = None) -> int:
                 game_over_message = None
                 print("Board tracking reset: the next analyzed state starts a new history.")
             if key == ord(" "):
+                last_recommendation = None
+                game_over_message = None
                 grid, _ = detector.process_frame(frame)
-                if grid is None:
+                check = validator.accept(grid) if grid is not None else None
+                if grid is None or check is None:
                     print("Could not process board; check calibration.")
-                    continue
-                check = validator.accept(grid)
-                if not check.ok:
+                elif not check.ok:
                     # A misread (hand occlusion, mid-drop token, glare) must
                     # never reach the AI as a real position.
                     print(f"Board rejected: {check.reason}.")
@@ -148,6 +149,9 @@ def main(argv: list[str] | None = None) -> int:
                         game_over_message = "RED WINS!" if winner == 1 else "YELLOW WINS!"
                         last_recommendation = None
                         print(f"Game over: {game_over_message}")
+                    elif is_board_full(grid):
+                        game_over_message = "DRAW!"
+                        print("Game over: DRAW! Board is full.")
                     else:
                         game_over_message = None
                         # Only consult the AI on its own turn. Vision view is

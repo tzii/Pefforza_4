@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 
 import numpy as np
+import pytest
 
 from pefforza.agent.minimax import MinimaxAgent, evaluate_position
 from pefforza.agent.search import BitboardSearchAgent, BitPosition, PerfectSolver
@@ -158,6 +159,61 @@ def test_reused_engine_matches_fresh_engine_across_a_game():
         col = r_reused.column if rng.random() < 0.7 else rng.choice(valid)
         board[next_open_row(board, col), col] = player
         player = 3 - player
+
+
+def test_deeper_cached_search_does_not_change_requested_depth():
+    board, player = _board_from_moves([3, 2, 4, 3, 1, 5, 2, 4])
+    reused = BitboardSearchAgent()
+    reused.search(board, player, depth=6)
+    for depth in (2, 3, 4):
+        expected = BitboardSearchAgent(use_tt=False).search(board, player, depth=depth)
+        actual = reused.search(board, player, depth=depth)
+        assert (actual.column, actual.score) == (expected.column, expected.score)
+        assert reused.analyze(board, player, depth=depth) == BitboardSearchAgent(
+            use_tt=False
+        ).analyze(board, player, depth=depth)
+
+
+def test_cached_mate_distance_is_relative_to_the_new_root():
+    board = np.array(
+        [
+            [0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 1, 1, 0, 0, 1],
+            [1, 2, 2, 2, 0, 2, 2],
+            [2, 1, 2, 2, 1, 1, 1],
+        ],
+        dtype=np.int8,
+    )
+    parent = BitPosition.from_board(board, to_move=2)
+    reused = BitboardSearchAgent()
+    reused.search(board, parent.to_move, depth=6)
+    child = parent.played(4)
+    expected = BitboardSearchAgent(use_tt=False).search(child.to_board(), child.to_move, depth=5)
+    actual = reused.search(child.to_board(), child.to_move, depth=5)
+    assert abs(expected.score) > 99_900
+    assert (actual.column, actual.score) == (expected.column, expected.score)
+
+
+@pytest.mark.parametrize("player,score", [(1, 100_000), (2, -100_000)])
+def test_search_does_not_play_after_a_win(player, score):
+    board = BitPosition.from_moves([0, 6, 1, 6, 2, 6, 3]).to_board()
+    bit = BitboardSearchAgent(depth=2)
+    result = bit.search(board, player)
+    assert (result.column, result.score, result.nodes) == (-1, score, 0)
+    assert bit.analyze(board, player) == {}
+    matrix = MinimaxAgent(depth=2)
+    result = matrix.search(board, player, depth=2)
+    assert (result.column, result.score, result.nodes) == (-1, score, 0)
+    result = matrix.search_with_time_budget(board, player, time_budget=1e-9)
+    assert (result.column, result.score, result.nodes) == (-1, score, 0)
+
+
+@pytest.mark.parametrize("depth", [0, -1])
+def test_analyze_rejects_non_positive_depth(depth):
+    with pytest.raises(ValueError, match="depth"):
+        BitboardSearchAgent().analyze(empty_board(), 1, depth=depth)
 
 
 def test_perfect_solver_matches_independently_verified_late_game_scores():

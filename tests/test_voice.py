@@ -117,3 +117,108 @@ def test_env_var_selects_null_backend(monkeypatch: pytest.MonkeyPatch):
         time.sleep(0.05)
     finally:
         engine.shutdown()
+
+
+def test_speak_after_shutdown_does_not_queue_or_restart():
+    backend = RecordingBackend()
+    engine = _make_engine(backend)
+    engine.speak("before shutdown")
+    engine.shutdown()
+    engine.speak("after shutdown")
+    engine.shutdown()
+    assert backend.utterances == ["before shutdown"]
+    assert engine._queue.empty()
+
+
+def test_timed_out_shutdown_can_be_joined_again():
+    release = threading.Event()
+
+    class BlockingBackend(RecordingBackend):
+        def speak(self, text: str) -> None:
+            super().speak(text)
+            assert release.wait(2)
+
+    backend = BlockingBackend()
+    engine = _make_engine(backend)
+    worker = engine._thread
+    try:
+        engine.speak("first")
+        assert backend.wait()
+        engine.shutdown(timeout=0)
+        engine.speak("too late")
+        assert engine._thread is worker
+    finally:
+        release.set()
+        engine.shutdown()
+    assert not worker.is_alive()
+    assert backend.closed
+    assert backend.utterances == ["first"]
+    assert engine._queue.empty()
+
+
+def test_close_failure_is_logged_without_unhandled_thread_error(caplog):
+    class BrokenCloseBackend(RecordingBackend):
+        def close(self) -> None:
+            raise RuntimeError("cleanup failed")
+
+    engine = _make_engine(BrokenCloseBackend())
+    engine.shutdown()
+    assert "cleanup failed" in caplog.text
+    assert engine._queue.empty()
+
+
+def test_shutdown_during_failed_backend_cleanup_leaves_no_sentinel():
+    closing = threading.Event()
+    release = threading.Event()
+
+    class FailedBackend(RecordingBackend):
+        def speak(self, text: str) -> None:
+            raise RuntimeError("speaker disconnected")
+
+        def close(self) -> None:
+            closing.set()
+            assert release.wait(2)
+            super().close()
+
+    backend = FailedBackend()
+    engine = _make_engine(backend)
+    try:
+        engine.speak("hello")
+        assert closing.wait(1)
+        engine.shutdown(timeout=0)
+        engine.speak("too late")
+    finally:
+        release.set()
+        engine.shutdown()
+    assert backend.closed
+    assert engine._queue.empty()
+
+
+def test_worker_start_failure_disables_voice_and_closes_backend(monkeypatch, caplog):
+    def fail_start(self):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", fail_start)
+    backend = RecordingBackend()
+    engine = _make_engine(backend)
+    engine.speak("ignored")
+    engine.shutdown()
+    engine.shutdown()
+    assert engine._thread is None
+    assert engine._queue.empty()
+    assert backend.closed
+    assert "can't start new thread" in caplog.text
+
+
+def test_worker_start_and_backend_cleanup_failures_remain_fail_soft(monkeypatch, caplog):
+    def fail_start(self):
+        raise RuntimeError("can't start new thread")
+
+    class BrokenCloseBackend(RecordingBackend):
+        def close(self) -> None:
+            raise RuntimeError("cleanup failed")
+
+    monkeypatch.setattr(threading.Thread, "start", fail_start)
+    engine = _make_engine(BrokenCloseBackend())
+    engine.shutdown()
+    assert "can't start new thread" in caplog.text

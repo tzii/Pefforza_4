@@ -4,8 +4,8 @@ Pefforza currently keeps two search paths side by side.
 
 ## Matrix baseline
 
-`pefforza.agent.minimax.MinimaxAgent` is the correctness baseline and the
-engine behind the `impossible` tier (time-budgeted iterative deepening). Its
+`pefforza.agent.minimax.MinimaxAgent` is the matrix correctness baseline, not
+the current `impossible` backend. It supports time-budgeted iterative deepening. Its
 root alpha-beta handling, mate distance scoring, and iterative-deepening
 deadline were corrected before any representation rewrite.
 
@@ -15,12 +15,14 @@ Important invariants:
 - mate scores are derived from root-relative `ply`, not `self.depth`;
 - time-budgeted search publishes only fully completed iterations;
 - `SearchResult.elapsed` is total iterative-search wall time.
+- Persistent bitboard entries normalize mate distances to their own position;
+  fixed-depth heuristic values are reused only at the matching search depth.
 
 ## Bitboard path
 
 `pefforza.agent.search` backs the public `hard` tier
-(`pefforza.agent.difficulty.bitboard_agent`, depth 8) and hosts the exact
-solver prototype.
+(`pefforza.agent.difficulty.bitboard_agent`, depth 8) and the exact
+`impossible` solver.
 
 - `BitPosition` uses seven bits per column: six playable cells and one sentinel;
 - `BitboardSearchAgent` keeps the legacy heuristic semantics but uses integer

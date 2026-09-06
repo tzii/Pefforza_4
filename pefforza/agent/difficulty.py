@@ -24,10 +24,7 @@ from pefforza.rules import Board
 
 logger = logging.getLogger(__name__)
 
-# Search depth of the bitboard `hard` backend. Depth 8 keeps a move well
-# under ~50 ms on commodity hardware (see scripts/benchmark_search.py) so the
-# GUI stays responsive without a worker thread; the matrix baseline needed
-# for comparison remains available via pefforza.agent.minimax.
+# Fixed search horizon of the `hard` backend; benchmark timings depend on hardware.
 HARD_BITBOARD_DEPTH = 8
 
 # Time budget of the exact-solver `impossible` backend.
@@ -83,7 +80,11 @@ def exact_agent(
 
     def select(board: Board, my_id: int, valid: list[int]) -> int:
         position = BitPosition.from_board(board, to_move=my_id)
-        budget = time_budget if position.moves >= EXACT_SOLVE_MIN_PLIES else OPENING_PROBE_BUDGET
+        budget = (
+            time_budget
+            if position.moves >= EXACT_SOLVE_MIN_PLIES
+            else min(time_budget, OPENING_PROBE_BUDGET)
+        )
         move = solver.solve_root(position, time_budget=budget).move
         return move if move in valid else valid[0]
 
@@ -115,8 +116,8 @@ DIFFICULTIES: dict[str, Difficulty] = {
         "impossible",
         (
             f"Exact bitboard solver, ~{IMPOSSIBLE_TIME_BUDGET:.0f}s budget: proven-optimal "
-            "moves whenever the proof fits; tactically-safe fallback (never gifts "
-            "an immediate win) when it does not."
+            "moves whenever the proof fits; fallback avoids an immediate loss "
+            "when a safe move exists."
         ),
         exact_agent,
     ),

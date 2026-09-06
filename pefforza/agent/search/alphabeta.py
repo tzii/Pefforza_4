@@ -16,11 +16,23 @@ from enum import Enum, auto
 
 from pefforza.rules import Board
 
-from .bitboard import BitPosition
+from .bitboard import TOTAL_CELLS, BitPosition, has_alignment
 from .heuristic import evaluate_bit_position
 
 MATE_SCORE = 100_000
 INF = 1_000_000
+
+
+def _mate_to_table(value: int, ply: int) -> int:
+    if value >= MATE_SCORE - TOTAL_CELLS:
+        return value + ply
+    if value <= -MATE_SCORE + TOTAL_CELLS:
+        return value - ply
+    return value
+
+
+def _mate_from_table(value: int, ply: int) -> int:
+    return _mate_to_table(value, -ply)
 
 
 class Bound(Enum):
@@ -88,10 +100,14 @@ class BitboardSearchAgent:
     def analyze(self, board: Board, my_id: int, depth: int | None = None) -> dict[int, int]:
         """Return exact full-window depth-limited scores for all legal moves."""
         depth = self.depth if depth is None else depth
+        if depth < 1:
+            raise ValueError("depth must be >= 1")
         position = BitPosition.from_board(board, to_move=my_id)
         scores: dict[int, int] = {}
         self._nodes = 0
         self._tt_hits = 0
+        if position.previous_player_won or has_alignment(position.current):
+            return scores
         for col in position.legal_columns():
             child = position.played(col)
             scores[col] = -self._negamax(child, depth - 1, -INF, INF, ply=1)
@@ -105,6 +121,10 @@ class BitboardSearchAgent:
         return legal
 
     def _root(self, position: BitPosition, depth: int) -> tuple[int, int]:
+        if position.previous_player_won:
+            return -1, -MATE_SCORE
+        if has_alignment(position.current):
+            return -1, MATE_SCORE
         legal = position.legal_columns()
         if not legal:
             return -1, 0
@@ -155,17 +175,19 @@ class BitboardSearchAgent:
 
         if self.use_tt:
             entry = self._table.get(position.key)
-            if entry is not None and entry.depth >= depth:
+            # A deeper heuristic horizon is not the requested fixed-depth value.
+            if entry is not None and entry.depth == depth:
                 self._tt_hits += 1
                 tt_move = entry.best_move
+                value = _mate_from_table(entry.value, ply)
                 if entry.bound is Bound.EXACT:
-                    return entry.value
+                    return value
                 if entry.bound is Bound.LOWER:
-                    alpha = max(alpha, entry.value)
+                    alpha = max(alpha, value)
                 else:
-                    beta = min(beta, entry.value)
+                    beta = min(beta, value)
                 if alpha >= beta:
-                    return entry.value
+                    return value
             elif entry is not None:
                 tt_move = entry.best_move
 
@@ -189,7 +211,8 @@ class BitboardSearchAgent:
                 bound = Bound.LOWER
             else:
                 bound = Bound.EXACT
-            self._table[position.key] = TTEntry(depth, best, bound, best_col)
+            # Store mate distance from this position, not from a previous root.
+            self._table[position.key] = TTEntry(depth, _mate_to_table(best, ply), bound, best_col)
 
         return best
 

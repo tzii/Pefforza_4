@@ -192,3 +192,62 @@ def test_physical_col_is_mirrored_when_flipped():
     assert detector.physical_col(0) == COLS - 1
     assert detector.physical_col(COLS - 1) == 0
     assert detector.physical_col(COLS // 2) == COLS - 1 - (COLS // 2)
+
+
+@pytest.mark.parametrize("camera_ok", [True, False])
+def test_cancelled_calibration_closes_window_once(monkeypatch, camera_ok):
+    from unittest.mock import Mock
+
+    camera = Mock()
+    camera.read.return_value = (camera_ok, np.zeros((100, 100, 3), dtype=np.uint8))
+    destroy = Mock()
+    monkeypatch.setattr(cv2, "namedWindow", Mock())
+    monkeypatch.setattr(cv2, "setMouseCallback", Mock())
+    monkeypatch.setattr(cv2, "imshow", Mock())
+    monkeypatch.setattr(cv2, "waitKey", lambda _: ord("q"))
+    monkeypatch.setattr(cv2, "destroyWindow", destroy)
+    detector = BoardDetector()
+    assert not detector.calibrate(camera)
+    assert detector.matrix is None
+    destroy.assert_called_once_with("Calibrate")
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        [(10, 10), (10, 10), (100, 100), (10, 100)],
+        [(10, 10), (20, 20), (30, 30), (40, 40)],
+        [(10, 10), (100, 10), (100, 100), (80, 40)],
+    ],
+)
+def test_calibration_rejects_degenerate_corners(monkeypatch, points):
+    from unittest.mock import Mock
+
+    detector = BoardDetector()
+    monkeypatch.setattr(cv2, "namedWindow", Mock())
+    monkeypatch.setattr(cv2, "destroyWindow", Mock())
+
+    def click_corners(window, callback):
+        for x, y in points:
+            callback(cv2.EVENT_LBUTTONDOWN, x, y, None, None)
+
+    monkeypatch.setattr(cv2, "setMouseCallback", click_corners)
+    assert not detector.calibrate(Mock())
+    assert detector.matrix is None
+
+
+def test_tilted_corners_do_not_reuse_the_same_extremum():
+    from itertools import permutations
+
+    corners = [(50, 0), (100, 50), (50, 100), (0, 50)]
+    for points in permutations(corners):
+        ordered = BoardDetector._order_points(list(points))
+        np.testing.assert_array_equal(ordered, np.asarray(corners, dtype=np.float32))
+        assert (
+            np.linalg.det(
+                cv2.getPerspectiveTransform(
+                    ordered, np.array([(0, 0), (700, 0), (700, 600), (0, 600)], dtype=np.float32)
+                )
+            )
+            != 0
+        )

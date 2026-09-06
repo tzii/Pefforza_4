@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import random
 
+import numpy as np
+import pytest
+
 from pefforza.agent.difficulty import (
     EXACT_SOLVE_MIN_PLIES,
     build_opponent,
@@ -297,3 +300,36 @@ def test_dunder_version_matches_installed_metadata():
     import pefforza
 
     assert pefforza.__version__ == version("pefforza")
+
+
+def test_exact_root_rejects_finished_wins():
+    position = BitPosition.from_moves([0, 6, 1, 6, 2, 6, 3])
+    with pytest.raises(ValueError, match="terminal"):
+        PerfectSolver(table_size_bits=8).solve_root(position)
+    assert opening_fallback_move(position) == -1
+
+
+def test_exact_root_reports_full_board_as_a_draw():
+    board = np.array(
+        [[1, 1, 2, 2, 1, 1, 2], [2, 2, 1, 1, 2, 2, 1]] * 3,
+        dtype=np.int8,
+    )
+    position = BitPosition.from_board(board, to_move=1)
+    assert position.is_full and not position.previous_player_won
+    result = PerfectSolver(table_size_bits=8).solve_root(position)
+    assert (result.move, result.outcome, result.proven) == (-1, "proven_draw", True)
+
+
+def test_opening_probe_honors_a_smaller_caller_budget(monkeypatch):
+    budgets = []
+
+    def solve_root(self, position, *, time_budget):
+        from pefforza.agent.search.perfect import RootResult
+
+        budgets.append(time_budget)
+        return RootResult(3, "fallback", False, 0, 0)
+
+    monkeypatch.setattr(PerfectSolver, "solve_root", solve_root)
+    agent = exact_agent(time_budget=0.001)
+    assert agent(empty_board(), 1, list(range(COLS))) == 3
+    assert budgets == [0.001]

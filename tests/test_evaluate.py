@@ -7,16 +7,20 @@ trained model, an audio device, or a camera.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from pefforza.agent.evaluate import (
     MatchResult,
+    _parse_args,
     evaluate,
     heuristic_agent,
+    model_agent,
     play_one_game,
     random_agent,
 )
 from pefforza.constants import COLS
-from pefforza.rules import Board
+from pefforza.envs.connect4_env import Connect4Env
+from pefforza.rules import Board, empty_board, swap_perspective
 
 
 def _leftmost_agent(board: Board, my_id: int, valid: list[int]) -> int:  # noqa: ARG001
@@ -93,3 +97,90 @@ def test_invalid_action_is_treated_as_forfeit():
 
     outcome = play_one_game(bad_p1, good_p2, seed=0)
     assert outcome == 2  # P2 wins by P1 forfeit
+
+
+@pytest.mark.parametrize(
+    "action", [0.0, np.array([0]), np.array([0, 1]), None, "0", True, np.bool_(True)]
+)
+@pytest.mark.parametrize("bad_player", [1, 2])
+def test_non_discrete_actions_forfeit_instead_of_drawing(action, bad_player):
+    def bad_agent(board, my_id, valid):
+        return action
+
+    agents = (bad_agent, _leftmost_agent) if bad_player == 1 else (_leftmost_agent, bad_agent)
+    assert play_one_game(*agents) == 3 - bad_player
+
+
+def test_agent_cannot_mutate_the_authoritative_board_or_legal_moves():
+    def destructive_agent(board, my_id, valid):
+        board[:] = my_id
+        valid[:] = [COLS + 1]
+        return COLS + 1
+
+    assert play_one_game(destructive_agent, _leftmost_agent) == 2
+
+
+@pytest.mark.parametrize("action", [3, np.int64(3), np.array(3), np.array([3])])
+@pytest.mark.parametrize("my_id", [1, 2])
+def test_model_predictions_support_scalar_arrays_and_translate_perspective(action, my_id):
+    board = empty_board()
+    board[-1, :2] = [1, 2]
+    before = board.copy()
+    expected = board if my_id == 1 else swap_perspective(board)
+
+    class Model:
+        def predict(self, obs, deterministic):
+            assert deterministic
+            np.testing.assert_array_equal(obs, expected)
+            obs[:] = 2
+            return action, None
+
+    assert model_agent(Model())(board, my_id, list(range(COLS))) == 3
+    np.testing.assert_array_equal(board, before)
+
+
+@pytest.mark.parametrize("action", [3.5, np.nan, "3", np.array([1, 2]), -1, COLS])
+def test_invalid_model_predictions_fall_back_to_a_legal_column(action):
+    class Model:
+        def predict(self, obs, deterministic):
+            return action, None
+
+    assert model_agent(Model())(empty_board(), 1, [2, 4]) == 2
+
+
+def test_evaluation_rejects_nonpositive_game_counts():
+    for games in (0, -1):
+        with pytest.raises(ValueError, match="games"):
+            evaluate(_leftmost_agent, _leftmost_agent, games=games)
+
+
+@pytest.mark.parametrize("args", [["--games", "0"], ["--minimax-depth", "-1"]])
+def test_evaluation_cli_rejects_nonpositive_work(args):
+    with pytest.raises(SystemExit) as exc:
+        _parse_args(args)
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_evaluation_always_closes_environment(monkeypatch, fail):
+    closed = []
+    monkeypatch.setattr(Connect4Env, "close", lambda self: closed.append(True))
+
+    def agent(board, player, valid):
+        if fail:
+            raise RuntimeError("agent failed")
+        return valid[0]
+
+    if fail:
+        with pytest.raises(RuntimeError, match="agent failed"):
+            play_one_game(agent, _leftmost_agent)
+    else:
+        play_one_game(agent, _leftmost_agent)
+    assert closed == [True]
+
+
+def test_complete_evaluation_is_repeatable_with_fresh_seeded_agents():
+    def run():
+        return evaluate(random_agent(seed=1), heuristic_agent(seed=2), games=12, seed=3)
+
+    assert run() == run()

@@ -10,6 +10,7 @@ is playing yellow.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from typing import Any
 
@@ -19,7 +20,9 @@ from numpy.typing import NDArray
 
 from pefforza.constants import COLS, ROWS
 
-# HSV color thresholds. Tunable via constructor; the defaults match a typical
+logger = logging.getLogger(__name__)
+
+# HSV color thresholds. The defaults match a typical
 # indoor lighting setup. Red wraps around the H axis so we keep two ranges.
 _DEFAULT_RED_RANGES = (
     (np.array([0, 70, 70]), np.array([12, 255, 255])),
@@ -66,14 +69,12 @@ class BoardDetector:
 
         window = "Calibrate"
         cv2.namedWindow(window)
-        # Bind the mouse callback once instead of per-frame.
-        cv2.setMouseCallback(window, self._click_event)
 
         try:
+            cv2.setMouseCallback(window, self._click_event)
             while len(self.points) < 4:
                 ret, frame = cap.read()
                 if not ret:
-                    cv2.destroyWindow(window)
                     return False
                 if flip:
                     frame = cv2.flip(frame, 1)
@@ -81,7 +82,6 @@ class BoardDetector:
                     cv2.circle(frame, pt, 5, (0, 255, 0), -1)
                 cv2.imshow(window, frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
-                    cv2.destroyWindow(window)
                     return False
         finally:
             cv2.destroyWindow(window)
@@ -91,7 +91,11 @@ class BoardDetector:
 
         # Order corners canonically so the warp orientation is independent of
         # the user's click order. Otherwise overlays end up rotated 90 / 180.
-        pts1 = self._order_points(self.points)
+        try:
+            pts1 = self._order_points(self.points)
+        except ValueError as exc:
+            logger.warning("Invalid calibration: %s", exc)
+            return False
         pts2 = np.array(
             [[0, 0], [self.width, 0], [self.width, self.height], [0, self.height]],
             dtype=np.float32,
@@ -107,25 +111,23 @@ class BoardDetector:
     def _order_points(points: list[tuple[int, int]]) -> NDArray[np.float32]:
         """Sort 4 points into canonical [TL, TR, BR, BL] regardless of click order.
 
-        Uses the standard sum/diff trick:
-        * Top-left has the smallest ``x + y``
-        * Bottom-right has the largest ``x + y``
-        * Top-right has the smallest ``y - x``
-        * Bottom-left has the largest ``y - x``
+        The board must be upright. Sort around its center, then start at the
+        upper-left corner. Unlike independent sum/diff extrema this never
+        selects the same corner twice on a tilted board.
 
-        This makes calibration tolerant of users who click corners in any
-        rotation: the resulting perspective warp always orients with the
-        physical top edge as warped ``y=0``, so column-number overlays and
-        AR arrows always appear above the board, never on the side.
+        Raises ValueError unless the points form a convex quadrilateral.
         """
         pts = np.array(points, dtype=np.float32)
-        s = pts.sum(axis=1)
-        diff = pts[:, 1] - pts[:, 0]
-        tl = pts[int(np.argmin(s))]
-        br = pts[int(np.argmax(s))]
-        tr = pts[int(np.argmin(diff))]
-        bl = pts[int(np.argmax(diff))]
-        return np.array([tl, tr, br, bl], dtype=np.float32)
+        if pts.shape != (4, 2) or not np.isfinite(pts).all():
+            raise ValueError("select four distinct board corners")
+        hull = cv2.convexHull(pts)
+        if len(hull) != 4 or cv2.contourArea(hull) <= 0:
+            raise ValueError("corners must form a convex quadrilateral")
+        center = pts.mean(axis=0)
+        angles = np.arctan2(pts[:, 1] - center[1], pts[:, 0] - center[0])
+        ordered = pts[np.argsort(angles)]
+        start = int(np.lexsort((ordered[:, 0], ordered[:, 1], ordered.sum(axis=1)))[0])
+        return np.roll(ordered, -start, axis=0)
 
     # --------------------------------------------------------- Frame analysis
     def classify_board_image(self, board_img: NDArray[Any]) -> NDArray[np.int8]:

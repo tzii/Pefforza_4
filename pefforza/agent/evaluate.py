@@ -25,6 +25,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+
 from pefforza.constants import COLS, DEFAULT_MODEL_PATH
 from pefforza.envs.connect4_env import Connect4Env
 from pefforza.rules import (
@@ -90,13 +92,17 @@ def model_agent(model: object, deterministic: bool = True) -> Agent:
     def select(board: Board, my_id: int, valid: list[int]) -> int:
         # The model was trained as player 1; if it's actually playing as 2 in
         # this game, swap so it always sees "1 = self, 2 = opponent".
-        obs = board if my_id == 1 else swap_perspective(board)
+        obs = board.copy() if my_id == 1 else swap_perspective(board)
         action, _ = model.predict(obs, deterministic=deterministic)  # type: ignore[attr-defined]
-        action = int(action)
-        if action not in valid:
-            logger.debug("Model picked invalid column %d, falling back.", action)
+        prediction = np.asarray(action)
+        if prediction.size != 1 or not np.issubdtype(prediction.dtype, np.integer):
+            logger.debug("Model returned a non-discrete prediction, falling back.")
             return valid[0]
-        return action
+        column = int(prediction.item())
+        if column not in valid:
+            logger.debug("Model picked invalid column %d, falling back.", column)
+            return valid[0]
+        return column
 
     return select
 
@@ -131,24 +137,29 @@ def play_one_game(
     agent_b: Agent,
     seed: int | None = None,
 ) -> int:
-    """Play one game. Returns 1 if A wins, 2 if B wins, 0 if draw / forfeit."""
+    """Return 1 if A wins, 2 if B wins, or 0 for a draw; illegal moves forfeit."""
     env = Connect4Env()
-    env.reset(seed=seed)
-    while True:
-        valid = available_columns(env.board)
-        if not valid:
-            return 0
-        if env.current_player == 1:
-            action = agent_a(env.board, 1, valid)
-        else:
-            action = agent_b(env.board, 2, valid)
-        if action not in valid:
-            # Treat illegal actions as a forfeit by the chooser.
-            return 2 if env.current_player == 1 else 1
-        _, _, terminated, _, info = env.step(action)
-        if terminated:
-            winner = info.get("winner")
-            return int(winner) if winner is not None else 0
+    try:
+        env.reset(seed=seed)
+        while True:
+            valid = available_columns(env.board)
+            if not valid:
+                return 0
+            player = env.current_player
+            chooser = agent_a if player == 1 else agent_b
+            action = chooser(env.board.copy(), player, valid.copy())
+            if (
+                isinstance(action, (bool, np.bool_))
+                or not env.action_space.contains(action)
+                or action not in valid
+            ):
+                return 3 - player
+            _, _, terminated, _, info = env.step(action)
+            if terminated:
+                winner = info.get("winner")
+                return int(winner) if winner is not None else 0
+    finally:
+        env.close()
 
 
 def evaluate(
@@ -159,6 +170,8 @@ def evaluate(
     swap_sides: bool = True,
 ) -> MatchResult:
     """Run ``games`` games. Alternates first-mover by default."""
+    if games <= 0:
+        raise ValueError("games must be positive")
     rng = random.Random(seed)
     result = MatchResult()
     for i in range(games):
@@ -211,7 +224,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--games", type=int, default=100)
     p.add_argument("--seed", type=int, default=0)
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.games <= 0 or args.minimax_depth <= 0:
+        p.error("--games and --minimax-depth must be positive")
+    return args
 
 
 def _build_opponent(args: argparse.Namespace, primary_model: object) -> Agent | None:

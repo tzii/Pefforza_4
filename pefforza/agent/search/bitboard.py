@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from operator import index
 
 import numpy as np
 
@@ -105,7 +106,7 @@ class BitPosition:
 
     @classmethod
     def from_board(cls, board: Board, to_move: int) -> BitPosition:
-        """Convert the public NumPy board into a relative bitboard position."""
+        """Convert a gravity-valid board with exact player IDs into a bitboard."""
         if board.shape != (ROWS, COLS):
             raise ValueError(f"expected board shape {(ROWS, COLS)}, got {board.shape}")
         if to_move not in (1, 2):
@@ -115,7 +116,7 @@ class BitPosition:
         mask = 0
         for r in range(ROWS):
             for c in range(COLS):
-                value = int(board[r, c])
+                value = board[r, c]
                 if value == EMPTY:
                     continue
                 if value not in (1, 2):
@@ -125,6 +126,8 @@ class BitPosition:
                 if value == to_move:
                     current |= bit
 
+        if np.any((board[:-1] != EMPTY) & (board[1:] == EMPTY)):
+            raise ValueError("board violates gravity: a token has an empty cell below it")
         return cls(current=current, mask=mask, moves=mask.bit_count(), to_move=to_move)
 
     @classmethod
@@ -132,7 +135,13 @@ class BitPosition:
         """Build a legal alternating position from zero-based played columns."""
         pos = cls.empty(to_move=1)
         for col in columns:
-            pos = pos.played(int(col))
+            if pos.previous_player_won:
+                raise ValueError("move sequence continues after a terminal win")
+            try:
+                column = index(col)
+            except TypeError as exc:
+                raise ValueError("move columns must be integers") from exc
+            pos = pos.played(column)
         return pos
 
     @property

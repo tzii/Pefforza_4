@@ -1,4 +1,4 @@
-"""PPO self-play training entrypoint.
+"""PPO training against a random opponent.
 
 Wraps ``Connect4Env`` so a Stable-Baselines3 single-agent algorithm can be
 used directly: the wrapper plays a (currently random) opponent move after the
@@ -32,6 +32,11 @@ class SinglePlayerWrapper(gym.Wrapper):
         super().__init__(env)
         self._rng = random.Random(seed)
 
+    def reset(self, *, seed: int | None = None, options: dict | None = None):
+        if seed is not None:
+            self._rng.seed(seed)
+        return self.env.reset(seed=seed, options=options)
+
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         if terminated or truncated:
@@ -57,28 +62,33 @@ def train(
     seed: int | None = None,
 ) -> Path:
     """Train PPO and write checkpoints. Returns the path to the final model."""
+    if timesteps <= 0 or iterations <= 0:
+        raise ValueError("timesteps and iterations must be positive")
     log_dir = Path(log_dir)
     models_dir = Path(models_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     models_dir.mkdir(parents=True, exist_ok=True)
 
     env = SinglePlayerWrapper(Connect4Env(), seed=seed)
-    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=str(log_dir), seed=seed)
+    try:
+        model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=str(log_dir), seed=seed)
 
-    for i in range(1, iterations + 1):
-        model.learn(
-            total_timesteps=timesteps,
-            reset_num_timesteps=False,
-            tb_log_name="PPO",
-        )
-        ckpt = models_dir / f"ppo_connect4_{timesteps * i}"
-        model.save(str(ckpt))
-        logger.info("Saved checkpoint: %s", ckpt)
+        for i in range(1, iterations + 1):
+            model.learn(
+                total_timesteps=timesteps,
+                reset_num_timesteps=False,
+                tb_log_name="PPO",
+            )
+            ckpt = models_dir / f"ppo_connect4_{timesteps * i}"
+            model.save(str(ckpt))
+            logger.info("Saved checkpoint: %s", ckpt)
 
-    final = models_dir / "ppo_connect4"
-    model.save(str(final))
-    logger.info("Saved final model: %s", final)
-    return final
+        final = models_dir / "ppo_connect4.zip"
+        model.save(str(final))
+        logger.info("Saved final model: %s", final)
+        return final
+    finally:
+        env.close()
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -88,7 +98,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--log-dir", default="pefforza/agent/logs")
     p.add_argument("--models-dir", default="pefforza/agent/models")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.timesteps <= 0 or args.iterations <= 0:
+        p.error("--timesteps and --iterations must be positive")
+    return args
 
 
 def main(argv: list[str] | None = None) -> None:

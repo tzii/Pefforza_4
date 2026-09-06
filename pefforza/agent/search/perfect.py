@@ -29,6 +29,7 @@ from .bitboard import (
     TOTAL_CELLS,
     BitPosition,
     compute_winning_positions,
+    has_alignment,
 )
 
 
@@ -126,8 +127,10 @@ def opening_fallback_move(position: BitPosition) -> int:
     opponent an immediate win (one-ply safety), preferring the ones creating
     the most winning spots (center-first on ties). This is *not* a
     game-theoretic guarantee: it only avoids an immediate loss whenever an
-    avoiding move exists. Returns -1 only when no legal move exists.
+    avoiding move exists. Returns -1 for finished games.
     """
+    if position.previous_player_won or has_alignment(position.current) or position.is_full:
+        return -1
     wins = position.winning_moves_mask()
     if wins:
         return next(col for col in MOVE_ORDER if wins & COLUMN_MASKS[col])
@@ -173,8 +176,8 @@ class PerfectSolver:
         ``weak=True`` computes only win/draw/loss (-1/0/+1), which is often
         sufficient for an "impossible" opponent and permits tighter windows.
         """
-        if position.previous_player_won:
-            raise ValueError("position is already terminal: previous player won")
+        if position.previous_player_won or has_alignment(position.current):
+            raise ValueError("position is already terminal: a player won")
         if time_budget is not None and time_budget <= 0:
             raise ValueError("time_budget must be > 0")
 
@@ -201,8 +204,8 @@ class PerfectSolver:
         :class:`PerfectSearchTimeoutError`; partial scores are deliberately not
         returned as if the analysis were complete.
         """
-        if position.previous_player_won:
-            raise ValueError("position is already terminal: previous player won")
+        if position.previous_player_won or has_alignment(position.current):
+            raise ValueError("position is already terminal: a player won")
         if time_budget is not None and time_budget <= 0:
             raise ValueError("time_budget must be > 0")
 
@@ -247,10 +250,14 @@ class PerfectSolver:
         still tactically safe: it never gifts an immediate win. Optimal
         whenever provable, interactive always.
         """
+        if position.previous_player_won or has_alignment(position.current):
+            raise ValueError("position is already terminal: a player won")
         if time_budget <= 0:
             raise ValueError("time_budget must be > 0")
 
         start = time.perf_counter()
+        if position.is_full:
+            return RootResult(-1, "proven_draw", True, 0, time.perf_counter() - start)
         wins = position.winning_moves_mask()
         if wins:
             move = next(col for col in MOVE_ORDER if wins & COLUMN_MASKS[col])

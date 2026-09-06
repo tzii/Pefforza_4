@@ -2,6 +2,7 @@
 
 Watches the webcam, detects the board state, and announces / draws the AI's
 recommended move whenever it's the AI's turn.
+Press 'r' to reset board tracking, or 'q' to quit.
 """
 
 from __future__ import annotations
@@ -14,9 +15,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from pefforza.constants import COLS, DEFAULT_MODEL_PATH
+from pefforza.constants import DEFAULT_MODEL_PATH
 from pefforza.interaction.voice import VoiceEngine
+from pefforza.rules import available_columns, check_winner, player_to_move, swap_perspective
 from pefforza.vision.board_detector import BoardDetector
+from pefforza.vision.validation import BoardStateValidator
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,6 @@ except Exception:  # pragma: no cover
     PPO = None  # type: ignore[assignment]
 
 # Vision palette: 1 = Red, 2 = Yellow.
-_HUMAN_RED = 1
 _AI_YELLOW = 2
 
 
@@ -58,11 +60,10 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("Model not found at %s; using random actions.", args.model)
 
     cap = cv2.VideoCapture(args.camera)
-    if not cap.isOpened():
-        logger.error("Could not open webcam at index %d.", args.camera)
-        return 2
-
     try:
+        if not cap.isOpened():
+            logger.error("Could not open webcam at index %d.", args.camera)
+            return 2
         if voice is not None:
             voice.speak("Please switch to the camera window and calibrate the board.")
         if not detector.calibrate(cap):
@@ -71,8 +72,12 @@ def main(argv: list[str] | None = None) -> int:
         if voice is not None:
             voice.speak("Calibration complete. Let's play.")
 
-        ai_announced = False
+        validator = BoardStateValidator()
+        recommended_board: bytes | None = None
+        recommendation: int | None = None
+        last_rejection: str | None = None
         rng = np.random.default_rng()
+        logger.info("Controls: r = reset board tracking, q = quit.")
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -80,40 +85,61 @@ def main(argv: list[str] | None = None) -> int:
 
             grid, board_img = detector.process_frame(frame)
             if grid is not None:
-                cv2.imshow("Board View", board_img)
-                human_tokens = int(np.count_nonzero(grid == _HUMAN_RED))
-                ai_tokens = int(np.count_nonzero(grid == _AI_YELLOW))
-                ai_turn = human_tokens > ai_tokens
-
-                if ai_turn:
-                    # Translate vision view -> model view (model is "1").
-                    model_input = grid.copy()
-                    model_input[grid == _AI_YELLOW] = 1
-                    model_input[grid == _HUMAN_RED] = 2
-
-                    if model is not None:
-                        action, _ = model.predict(model_input, deterministic=True)
-                        col = int(action)
-                    else:
-                        col = int(rng.integers(0, COLS))
-
-                    detector.draw_move(frame, col)
-                    if not ai_announced:
-                        if voice is not None:
-                            voice.play_move_commentary(col, confidence=0.9)
-                        logger.info("AI suggests column %d", col + 1)
-                        ai_announced = True
+                if board_img is not None:
+                    cv2.imshow("Board View", board_img)
+                check = validator.accept(grid)
+                if not check.ok:
+                    if check.reason != last_rejection:
+                        logger.warning("Board rejected: %s. Press r to resync.", check.reason)
+                    last_rejection = check.reason
                 else:
-                    ai_announced = False
+                    last_rejection = None
+                    valid = available_columns(grid)
+                    ai_turn = player_to_move(grid) == _AI_YELLOW
+                    if check_winner(grid) or not valid or not ai_turn:
+                        recommended_board = None
+                        recommendation = None
+                    else:
+                        board_key = grid.tobytes()
+                        if board_key != recommended_board:
+                            col = None
+                            if model is not None:
+                                try:
+                                    action, _ = model.predict(
+                                        swap_perspective(grid), deterministic=True
+                                    )
+                                    col = int(action)
+                                except Exception as exc:
+                                    logger.warning(
+                                        "Prediction failed; using legal fallback: %s", exc
+                                    )
+                            if col not in valid:
+                                col = int(rng.choice(valid))
+                            recommendation = col
+                            recommended_board = board_key
+                            if voice is not None:
+                                voice.play_move_commentary(col)
+                            logger.info("AI suggests column %d", col + 1)
+                        if recommendation is not None:
+                            detector.draw_move(frame, recommendation)
 
             cv2.imshow("Main", frame)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
                 break
+            if key == ord("r"):
+                validator.reset()
+                recommended_board = None
+                recommendation = None
+                last_rejection = None
+                logger.info("Board tracking reset.")
     finally:
         cap.release()
-        cv2.destroyAllWindows()
-        if voice is not None:
-            voice.shutdown()
+        try:
+            cv2.destroyAllWindows()
+        finally:
+            if voice is not None:
+                voice.shutdown()
 
     return 0
 

@@ -79,6 +79,7 @@ class VoiceEngine:
         self._explicit_backend = backend
         self._queue: queue.Queue[object] = queue.Queue()
         self._available = True
+        self._stopping = False
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._start_worker()
@@ -86,9 +87,10 @@ class VoiceEngine:
     # ------------------------------------------------------------------ API
     def speak(self, text: str) -> None:
         """Queue ``text`` for speech. Returns immediately."""
-        if not self._available or not text:
-            return
-        self._queue.put(str(text))
+        with self._lock:
+            if not self._available or not text:
+                return
+            self._queue.put(str(text))
 
     def play_move_commentary(self, col: int, confidence: float | None = None) -> None:
         msg = f"Putting in column {col + 1}"
@@ -102,11 +104,20 @@ class VoiceEngine:
     def shutdown(self, timeout: float = 2.0) -> None:
         """Signal the worker to stop and wait briefly for it to drain."""
         with self._lock:
-            if self._thread is None:
+            worker = self._thread
+            if worker is None:
+                self._available = False
                 return
-            self._queue.put(_SHUTDOWN)
-            self._thread.join(timeout=timeout)
-            self._thread = None
+            if self._available and not self._stopping and worker.is_alive():
+                self._stopping = True
+                self._queue.put(_SHUTDOWN)
+            self._available = False
+        # A timed-out worker stays joinable; never enqueue speech after its sentinel.
+        if worker is not threading.current_thread():
+            worker.join(timeout=timeout)
+        with self._lock:
+            if not worker.is_alive():
+                self._thread = None
 
     # ----------------------------------------------------------- internals
     def _resolve_backend(self) -> TTSBackend | None:
@@ -127,14 +138,21 @@ class VoiceEngine:
             name="pefforza-voice",
             daemon=True,
         )
-        self._thread.start()
+        try:
+            self._thread.start()
+        except RuntimeError as exc:
+            logger.warning("Voice disabled: worker could not start (%s)", exc)
+            self._available = False
+            self._thread = None
+            if self._explicit_backend is not None:
+                with contextlib.suppress(Exception):
+                    self._explicit_backend.close()
 
     def _worker_loop(self) -> None:
         backend = self._resolve_backend()
-        if backend is None:
-            self._available = False
-            return
         try:
+            if backend is None:
+                return
             while True:
                 item = self._queue.get()
                 if item is _SHUTDOWN:
@@ -146,10 +164,20 @@ class VoiceEngine:
                         "TTS speak failed (%s); disabling further speech.",
                         exc,
                     )
-                    self._available = False
                     break
         finally:
-            backend.close()
+            with self._lock:
+                self._available = False
+                while True:
+                    try:
+                        self._queue.get_nowait()
+                    except queue.Empty:
+                        break
+            if backend is not None:
+                try:
+                    backend.close()
+                except Exception as exc:
+                    logger.warning("TTS cleanup failed (%s).", exc)
 
 
 __all__ = ["NullBackend", "Pyttsx3Backend", "TTSBackend", "VoiceEngine"]

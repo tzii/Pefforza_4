@@ -16,7 +16,7 @@ produces confident nonsense.
   a single legal drop or one full legal round (two alternating drops, e.g.
   when the board is analyzed once per round instead of once per move), and
   never removes or recolors a token;
-* terminal-aware - once a win is accepted, no further moves are accepted
+* terminal-aware - once a win or draw is accepted, no further moves are accepted
   (clearing the board starts a new game instead).
 
 The controller combines the validator with :func:`pefforza.rules.player_to_move`
@@ -34,7 +34,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from pefforza.constants import COLS, ROWS
-from pefforza.rules import check_winner
+from pefforza.rules import check_winner, is_board_full, player_to_move
 
 Grid = NDArray[np.int8]
 
@@ -109,12 +109,14 @@ class BoardStateValidator:
             )
 
         if self._last_accepted is not None:
-            transition = self._check_transition(self._last_accepted, grid)
+            transition = self._check_transition(
+                self._last_accepted, grid, first_player=1 if self.red_moves_first else 2
+            )
             if not transition.ok:
                 return transition
 
         self._last_accepted = grid.copy()
-        self._last_was_terminal = check_winner(grid) != 0
+        self._last_was_terminal = check_winner(grid) != 0 or is_board_full(grid)
         return Validation(True)
 
     # ------------------------------------------------------------- internals
@@ -146,7 +148,7 @@ class BoardStateValidator:
         return (red == yellow) if red_wins else (yellow == red + 1)
 
     @staticmethod
-    def _check_transition(prev: Grid, curr: Grid) -> Validation:
+    def _check_transition(prev: Grid, curr: Grid, *, first_player: int = 1) -> Validation:
         removed = (prev != 0) & (curr == 0)
         recolored = (prev != 0) & (curr != 0) & (prev != curr)
         added = (prev == 0) & (curr != 0)
@@ -167,7 +169,9 @@ class BoardStateValidator:
                 return Validation(False, "the new token appeared mid-air, not on the stack")
             return Validation(True)
         if len(cells) == 2:
-            return BoardStateValidator._check_round_transition(prev, curr, cells)
+            return BoardStateValidator._check_round_transition(
+                prev, curr, cells, first_player=first_player
+            )
         return Validation(
             False,
             "more than two tokens appeared between reads "
@@ -175,7 +179,9 @@ class BoardStateValidator:
         )
 
     @staticmethod
-    def _check_round_transition(prev: Grid, curr: Grid, cells: list[tuple[int, int]]) -> Validation:
+    def _check_round_transition(
+        prev: Grid, curr: Grid, cells: list[tuple[int, int]], *, first_player: int = 1
+    ) -> Validation:
         """Accept a full-round read: two alternating drops between analyses.
 
         The natural physical workflow analyzes once per *round* - the AI's
@@ -193,8 +199,7 @@ class BoardStateValidator:
 
         # Order the drops by turn: whose move was due on prev decides who went
         # first; in a shared column the lower drop must also be the earlier one.
-        prev_red = int(np.count_nonzero(prev == 1))
-        first_color = 1 if prev_red == int(np.count_nonzero(prev == 2)) else 2
+        first_color = player_to_move(prev, first_player=first_player)
         if color1 != first_color:
             (r1, c1, color1), (r2, c2, color2) = (r2, c2, color2), (r1, c1, color1)
         if c1 == c2 and r1 < r2:

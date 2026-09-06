@@ -94,11 +94,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
 
     cap = cv2.VideoCapture(args.camera)
-    if not cap.isOpened():
-        logger.error("Could not open webcam at index %d.", args.camera)
-        return 2
-
     try:
+        if not cap.isOpened():
+            logger.error("Could not open webcam at index %d.", args.camera)
+            return 2
         detector = BoardDetector()
         logger.info("Calibrate by clicking the 4 corners (TL, TR, BR, BL). 'q' aborts.")
         if not detector.calibrate(cap, flip=args.flip):
@@ -134,9 +133,16 @@ def main(argv: list[str] | None = None) -> int:
                 paused = not paused
                 logger.info("Paused." if paused else "Resumed.")
             if key == ord("s") and last_warped is not None and last_grid is not None:
-                cv2.imwrite("vision_debug.png", last_warped)
-                logger.info("Saved warped board to vision_debug.png")
-                logger.info("Detected grid:\n%s", last_grid)
+                try:
+                    saved = cv2.imwrite("vision_debug.png", last_warped)
+                except cv2.error as exc:
+                    logger.error("Could not save vision_debug.png: %s", exc)
+                else:
+                    if saved:
+                        logger.info("Saved warped board to vision_debug.png")
+                        logger.info("Detected grid:\n%s", last_grid)
+                    else:
+                        logger.error("Could not save vision_debug.png; check write permissions.")
     finally:
         cap.release()
         cv2.destroyAllWindows()

@@ -1,5 +1,9 @@
 # Documentazione Tecnica Pefforza: Indice Generale
 
+> Questi moduli conservano le note didattiche originali e possono descrivere
+> implementazioni precedenti. Per comandi, garanzie e limiti attuali, leggere
+> il [README](../README.md) e l'[audit aggiornato](PROJECT_STATUS.md).
+
 Benvenuto nella documentazione tecnica ufficiale del progetto **Pefforza** (Connect 4 AI con Computer Vision, Vocazione TTS ed esecuzione intelligente). 
 
 Questa documentazione è divisa in molteplici moduli esplicativi per consentire una lettura agevole, un onboarding rapido e una comprensione approfondita dei vari moduli.

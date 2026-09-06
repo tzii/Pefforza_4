@@ -1,225 +1,260 @@
-<p align="center">
-  <img src="assets/pefforza4-banner.png" alt="Pefforza 4 - Connect 4, AI, vision, and voice" width="100%">
-</p>
-
 <h1 align="center">Pefforza 4</h1>
+<p align="center"><strong>Four in a row. One more round?</strong></p>
+<p align="center">A small game. A curious mind. An AI lab you can actually play.</p>
 
 <p align="center">
-  <strong>Connect Four powered by AI, computer vision, and voice interaction.</strong>
+  <a href="https://github.com/tzii/Pefforza_4/actions/workflows/ci.yml"><img src="https://github.com/tzii/Pefforza_4/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <img src="https://img.shields.io/badge/Python-3.10–3.13-3776AB?logo=python&logoColor=white" alt="Python 3.10 to 3.13">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0 or later"></a>
 </p>
+<p align="center">
+  <a href="#quick-start">Get playing</a> ·
+  <a href="#choose-your-opponent">Meet the AI</a> ·
+  <a href="#bring-a-real-board">Camera mode</a> ·
+  <a href="#the-student-lab">The student lab</a> ·
+  <a href="docs/README.md">Go deeper</a>
+</p>
+
+Pefforza turns Connect Four into a hands-on student project: play against search
+algorithms or a trained neural policy, teach a webcam to read a real board, and
+experiment with reinforcement learning. Serious ideas, low-pressure play.
 
 <p align="center">
-  <a href="https://github.com/tzii/Pefforza_4/actions/workflows/ci.yml">
-    <img src="https://github.com/tzii/Pefforza_4/actions/workflows/ci.yml/badge.svg" alt="CI status">
-  </a>
-  <img src="https://img.shields.io/badge/Python-3.10--3.13-3776AB?logo=python&logoColor=white" alt="Python 3.10 to 3.13">
-  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0 license">
+  <img src="assets/pefforza-playground.png" alt="The Pefforza desktop playground: a Connect Four board, clear turn feedback, difficulty selection, hints, undo, and replay." width="960">
+  <br><sub>A real capture of the Pygame app—not a design mockup.</sub>
 </p>
 
-<p align="center">
-  <a href="#quick-start">Quick start</a> &bull;
-  <a href="#play">Play</a> &bull;
-  <a href="#architecture">Architecture</a> &bull;
-  <a href="docs/PROJECT_DEEP_DIVE.md">Technical docs</a>
-</p>
+## Pick your playground
 
-Pefforza 4 turns Connect Four into a complete AI project. A webcam can
-reconstruct a real 6x7 board, the agent chooses a move, and an augmented-reality
-overlay shows the recommendation while optional text-to-speech comments on the
-game. The same engine also runs without hardware in a terminal or Pygame GUI.
-
-## Features
-
-- **Computer vision** - webcam calibration and HSV classification detect red
-  and yellow tokens on a physical 6x7 board.
-- **Multiple AI levels** - random, heuristic, minimax, and a bundled PPO
-  checkpoint provide different ways to play and evaluate the agent.
-- **Voice interaction** - non-blocking, fail-soft commentary via `pyttsx3`
-  automatically disables itself if audio is unavailable.
-- **Three play modes** - terminal CLI, Pygame GUI, or an AR assistant for a
-  real board.
+| Mode | What you get | What you need |
+| :--- | :--- | :--- |
+| **Desktop** | Animated drops, keyboard controls, explained hints, undo, replay, five AI tiers | A desktop display; no camera or microphone |
+| **Terminal** | The same opponents, clean text play, optional spoken commentary | A terminal; audio is optional |
+| **Physical board** | Four-click calibration, board validation, an AR move recommendation | An upright red/yellow board, webcam, good lighting |
 
 ## Quick start
+
+Use **Python 3.10–3.13**. A CPU is enough; a GPU is not required.
 
 ```bash
 git clone https://github.com/tzii/Pefforza_4.git
 cd Pefforza_4
 python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
-source .venv/bin/activate
-pip install -e ".[dev]"
-python play_gui.py
 ```
 
-Run the activation command for your operating system, then continue with the
-installation and launch commands.
+Activate the environment for your shell:
 
-## Architecture
+| macOS / Linux | Windows PowerShell | Windows Command Prompt |
+| :--- | :--- | :--- |
+| `source .venv/bin/activate` | `.venv\Scripts\Activate.ps1` | `.venv\Scripts\activate.bat` |
 
-![Pefforza project structure](assets/structure.png)
-
-### Project layout
-
-- `pefforza/` — installable package
-  - `constants.py`, `rules.py` — board geometry and pure game logic (no heavy deps).
-  - `cli/` — entrypoint implementations (`play_cli`, `play_gui`, `play_physical`).
-  - `envs/connect4_env.py` — Gymnasium environment.
-  - `agent/train.py` — PPO trainer with `SinglePlayerWrapper`.
-  - `vision/board_detector.py` — calibration + token classification.
-  - `interaction/voice.py` — thread-safe TTS wrapper.
-- `play_cli.py`, `play_gui.py`, `play_physical.py` — thin shims over `pefforza.cli` so `python play_cli.py` keeps working; `main.py` is a continuously-watching AR variant.
-- `notebooks/` — exploratory work (training demo, vision debugging, etc.).
-- `tests/` — pytest suite for `rules` and `Connect4Env`.
-
-## Requirements
-
-- Python 3.10 – 3.13
-- A C/C++ toolchain isn't needed for normal install; SB3 brings PyTorch (CPU is enough for inference and small-scale training).
-
-## Install
+Then install and play:
 
 ```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
-source .venv/bin/activate
-
-# Editable install with dev tooling
-pip install -e ".[dev]"
+python -m pip install -e .
+pefforza-gui
 ```
 
-If you prefer plain requirements files:
+No desktop display? Start with `pefforza-cli`. The first installation downloads
+the ML dependencies, even if you plan to play against a search-based opponent.
+
+<details>
+<summary><strong>Smaller CPU-only install on Linux / Windows</strong></summary>
+
+Before installing Pefforza, install PyTorch's CPU wheel in your activated environment:
 
 ```bash
-pip install -r requirements-dev.txt   # runtime + dev
-# or, runtime only
-pip install -r requirements.txt
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -e .
 ```
 
-## Play
+For other accelerator/platform combinations, use the
+[official PyTorch selector](https://pytorch.org/get-started/locally/).
 
-The opponent is selectable via `--difficulty`:
+</details>
 
-| Tier | Engine | Notes |
-|---|---|---|
-| `easy` | random | Picks any legal column |
-| `medium` | 1-ply heuristic | Win-if-you-can, block-if-you-must, prefer center |
-| `hard` (default) | bitboard alpha-beta depth 8 | Same heuristic as the matrix baseline, an order of magnitude faster |
-| `impossible` | exact bitboard solver (~3s budget) | Proven-optimal moves whenever the proof fits the budget; tactically-safe fallback (never gifts an immediate win) when it does not |
-| `neural` | bundled PPO checkpoint | Strength depends on training |
+## Make yourself at home
 
-### Terminal
+You play **X / coral**; the AI plays **O / gold**. Connect four horizontally,
+vertically, or diagonally. Symbols accompany colors so the board is not
+color-only, and the winning line stays highlighted until you choose what is next.
 
-After any `pip install` (editable or from a wheel), the console command is
-`pefforza-cli`; the repo-root script works too:
+| Desktop control | Action |
+| :--- | :--- |
+| Click a column or press **1–7** | Drop a piece |
+| **← / →**, then **Enter** or **Space** | Select a column and drop |
+| **H** / Hint | Explain a quick win, block, or center-oriented suggestion; never plays for you |
+| **U** / Undo | Return to your previous decision, including during AI thinking or after a result |
+| **R** / New round | Clear the board and play again |
+| **D** / Difficulty | Cycle the opponent **and start a new round** |
+| **Esc** / close window | Leave immediately, even while the AI is searching |
+
+Resize the window to fit your screen. Prefer less motion? Run
+`pefforza-gui --no-animate`. Use `--seed 4` for repeatable random-opponent sessions.
+Hints are simple teaching aids, not deep-search proofs. Undo restores the board;
+the restarted AI worker also resets its random sequence and search cache.
+
+## Choose your opponent
+
+| Tier | Personality | Actual engine |
+| :--- | :--- | :--- |
+| `easy` | A little warm-up | Uniform random legal moves |
+| `medium` | A sparring partner | Win now, block now, otherwise prefer the center |
+| `hard` **(default)** | Think a few moves ahead | Depth-8 bitboard alpha-beta search with a tactical safety net |
+| `impossible` | Challenge the solver | Exact search with a roughly 3-second budget; a short probe in early positions |
+| `neural` | Meet the student | Bundled PPO checkpoint; strength depends on training |
+
+**“Impossible” is a challenge name, not an unbeatable guarantee.** Completed
+proofs give optimal moves. If the time budget runs out, the fallback avoids an
+immediate loss when a safe move exists—but can still miss a deeper tactic.
+The neural model is experimental, not automatically stronger than search; if it
+cannot load, the game warns and uses the medium-style heuristic instead.
 
 ```bash
-pefforza-cli                                        # default: hard
-python play_cli.py --difficulty impossible          # strongest current heuristic search
-python play_cli.py --difficulty medium --voice      # easier opponent + TTS
-python play_cli.py --difficulty neural --model my.zip
+pefforza-gui --difficulty medium
+pefforza-cli --difficulty impossible
+pefforza-cli --difficulty medium --voice
+pefforza-cli --difficulty neural --model path/to/checkpoint.zip
 ```
 
-### Pygame GUI
+The source-checkout shims (`python play_gui.py`, `python play_cli.py`, and
+`python play_physical.py`) still work. All three commands support `--help`.
+
+## Bring a real board
 
 ```bash
-pefforza-gui --difficulty impossible
-# or, from a source checkout:
-python play_gui.py --difficulty impossible
+pefforza-physical --difficulty hard --ai-color yellow --camera 0
 ```
 
-### Physical board (AR assistant)
+1. Keep the board upright and the camera still. Use diffuse light, not glare.
+2. Click its four distinct outer corners, in any order. Press **q** to cancel.
+3. Press **Space** after a move (or a complete round) to analyze the board.
+4. Read the AR arrow and printed column. Press **r** to reset tracking if the
+   board has changed unexpectedly; **q** quits. Moving the camera requires a
+   fresh calibration, not just a tracking reset.
+
+The feed is mirrored. The arrow uses display coordinates; the printed/HUD column
+uses the physical board's left-to-right numbering. Implausible states are
+rejected instead of being fed to the AI. Finished games—including draws—stop
+recommendations. Clear the board after a result to start again.
+
+**See what the camera sees:**
 
 ```bash
-python play_physical.py                              # default: hard
-python play_physical.py --difficulty impossible
-python play_physical.py --difficulty medium --ai-color yellow --camera 0
+python -m pefforza.vision.diagnose --camera 0 --flip
 ```
 
-After the camera window opens, click the four corners of the board (any
-order — the detector auto-sorts TL/TR/BR/BL). Press `SPACE` to analyse the
-current board, `q` to quit. The recommended column is drawn as an AR arrow
-on top of the live feed.
+The diagnostic view shows cell labels and color-classification confidence.
+Press **s** to save `vision_debug.png`, or **q** to quit. Confidence measures color
+occupancy, not certainty that the entire game position is correct. Check captures
+for people or private surroundings before sharing them.
 
-The camera feed is mirrored for a natural calibration experience, so the
-arrow is drawn in display space while the printed/HUD recommendation is
-translated to the physical board's column numbering (what you count on the
-real board, left to right).
+`main.py` is a separate, continuously watching **neural** AR experiment with the
+AI playing yellow. It validates reads, caches recommendations per board, and
+supports **r** to resync; it does **not** expose the difficulty selector. Its
+voice commentary is optional (`--no-voice`). Start with the Space-triggered mode.
 
-`main.py` is a continuously-watching variant of the AR assistant — it reads
-the board every frame and announces the AI's move whenever it's the AI's turn.
+## The student lab
 
-### Verify the vision pipeline
+Three good experiments, from a quick afternoon to a deeper project:
 
-If physical-board play feels off, check what the detector actually sees:
+**01 · Ask why an AI move works.** Play on medium, ask for a hint, undo, and try
+another idea. Then compare the search engines:
 
 ```bash
-python -m pefforza.vision.diagnose             # default camera 0
-python -m pefforza.vision.diagnose --camera 1
-python -m pefforza.vision.diagnose --flip      # mirror feed first
+python scripts/benchmark_search.py --depths 6 8 --skip-solver
 ```
 
-After calibration the tool overlays each detected cell with `X`/`O`/`.` and a
-confidence value (0–1). If empty cells show high confidence, lighting is too
-dim or your color thresholds need adjusting; if tokens show low confidence,
-the camera is glaring or the ROI margin is wrong. Press `s` to save a
-`vision_debug.png` snapshot for sharing or further analysis.
-
-Headless unit tests (no camera needed) live in
-`tests/test_board_detector.py` and run as part of the standard test suite.
-
-## Train
+**02 · Train a policy, then measure it.** Training currently faces a random
+opponent—it is not competitive self-play. Start small:
 
 ```bash
-python -m pefforza.agent.train --timesteps 50000 --iterations 5
+python -m pefforza.agent.train --timesteps 10000 --iterations 2 --seed 4
+python -m pefforza.agent.evaluate --model pefforza/agent/models/ppo_connect4.zip --opponent heuristic --games 100 --seed 4
 ```
 
-Or open `notebooks/04_improve_model.ipynb` for an interactive training loop.
+Evaluation alternates sides. Try `--opponent random`, or compare checkpoints
+using `--opponent model --opponent-model older.zip`. Judge win/loss/draw rates,
+not just how convincing a move looks. Training writes new checkpoints; it does
+not replace the bundled `notebook_model.zip`. Only load checkpoints you trust.
 
-## Test the model (without vision)
+**03 · Make vision less fragile.** Use the diagnostic tool to compare lighting,
+camera angle, and token colors. The next worthwhile research step is measured
+color calibration, not a bigger UI around unreliable detections.
 
-The headless evaluator runs your checkpoint against canned opponents and
-reports win / loss / draw rates. Sides alternate so first-mover bias doesn't
-mislead you.
+The [notebooks](notebooks/) preserve the exploratory side of the project.
+Open them in a separately installed Jupyter environment using this project's
+Python environment. The [technical notes](docs/README.md) explain the ideas.
 
-```bash
-# 100 games vs a 1-ply heuristic (win-if-you-can, block-if-you-must, else center)
-python -m pefforza.agent.evaluate --opponent heuristic --games 100
+## Under the hood
 
-# Sanity check vs a uniform-random opponent
-python -m pefforza.agent.evaluate --opponent random --games 200
-
-# Compare two checkpoints head-to-head
-python -m pefforza.agent.evaluate \
-    --model new.zip --opponent model --opponent-model old.zip --games 200
+```mermaid
+flowchart LR
+    Desktop[Desktop / terminal] --> State[Rules + Connect4Env]
+    Camera[Webcam] --> Vision[Calibration + HSV detection]
+    Vision --> Validation[Board-state validation]
+    Validation --> AI[Shared opponent registry]
+    State --> AI
+    AI --> Search[Heuristic / bitboard / exact search]
+    AI --> PPO[Trained PPO policy]
+    AI --> Feedback[Board, AR arrow, optional voice]
 ```
 
-For a quick subjective challenge, just run `play_cli.py` or `play_gui.py`.
+| Area | Start reading here |
+| :--- | :--- |
+| Board geometry and pure rules | [`constants.py`](pefforza/constants.py), [`rules.py`](pefforza/rules.py) |
+| Gymnasium environment | [`connect4_env.py`](pefforza/envs/connect4_env.py) |
+| AI tiers and search | [`difficulty.py`](pefforza/agent/difficulty.py), [search notes](docs/search_engine.md) |
+| Desktop state, worker, rendering | [`gui_game.py`](pefforza/cli/gui_game.py), [`gui_view.py`](pefforza/cli/gui_view.py) |
+| Camera and board validation | [`vision/`](pefforza/vision/) |
+| Nonblocking, fail-soft speech | [`voice.py`](pefforza/interaction/voice.py) |
 
-## Develop
+Board arrays are indexed **top-to-bottom**, with zero-based columns internally
+and **1–7** in player-facing instructions. The environment stores absolute
+player IDs; model input is normalized so **1 = self, 2 = opponent**. Vision uses
+**1 = red, 2 = yellow**. Use `swap_perspective`, not hand-written ID swaps.
 
-Run the quality gates before pushing:
+## Build with us
 
 ```bash
+python -m pip install -e ".[dev]"
 python -m ruff check .
 python -m ruff format --check .
+python -m mypy
 python -m pytest --cov=pefforza
 ```
 
-CI runs the same checks on Python 3.10–3.13 (`.github/workflows/ci.yml`).
+Tests cover rules, full games, search equivalence, terminal play, desktop
+controls and worker cancellation, camera validation, and voice failure paths.
+They use synthetic frames and fake devices—not a webcam, speaker, or trained
+checkpoint. CI checks Python 3.10–3.13 and smoke-tests the built wheel.
 
-## Conventions
+For a headless development demo of the **real desktop app**, run
+`python scripts/preview_gui.py` and visit `http://127.0.0.1:3000`. This is a local
+development remote with one shared game, not a production web service or a
+browser-based camera mode. Restart the command after source edits. Hoplite uses
+the versioned setup/run commands in [`.hoplite/settings.json`](.hoplite/settings.json).
 
-Player IDs in the environment use **`1` for the agent's perspective and `2`
-for the opponent**. The vision pipeline uses **`1 = Red`, `2 = Yellow`**. When
-the AI plays Yellow, translate between the two views with
-`pefforza.rules.swap_perspective`.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and [AGENTS.md](AGENTS.md)
+for repository conventions. Prefer small, explainable changes with a regression
+test and a reproducible example.
 
-## License
+## Honest limits
 
-Released under the [GNU Affero General Public License v3.0 or later](LICENSE).
-See `LICENSE` for the full text. Contributor guidance lives in
-[AGENTS.md](AGENTS.md).
+- Camera accuracy depends on manual calibration, fixed HSV thresholds, lighting,
+  and an unobstructed board. A plausible read can still be wrong.
+- Real webcam drivers, OS windows, and audible speech need a hardware smoke test.
+  Headless tests cannot prove those work on every machine.
+- Voice is text-to-speech, **not speech recognition**. Missing audio support
+  disables commentary rather than ending a game.
+- The bundled neural policy is a learning artifact. Search is the stronger
+  default; no tier is advertised as universally unbeatable.
+
+See the [current audit and next experiments](docs/PROJECT_STATUS.md) for evidence,
+remaining risks, and a focused roadmap.
+
+---
+
+<p align="center"><strong>Try a thought. Take it back. Find your next good move.</strong><br>
+Built to play with, learn from, and improve together.<br>
+<a href="LICENSE">AGPL-3.0-or-later</a></p>

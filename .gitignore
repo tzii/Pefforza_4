@@ -55,3 +55,4 @@ output.png
 
 # --- Agent tooling worktrees (contains full project copies) ---
 .kilo/worktrees/
+.hoplite/artifacts/

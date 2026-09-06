@@ -355,3 +355,33 @@ def test_validation_object_truthiness():
 )
 def test_partial_games_pass_count_and_structure(moves: list[int]):
     assert BoardStateValidator().accept(_from_moves(moves)).ok
+
+
+@pytest.mark.parametrize("moves", [[3, 3], [3, 3, 3]])
+def test_yellow_first_rounds_follow_configured_turn_order(moves):
+    from pefforza.rules import swap_perspective
+
+    validator = BoardStateValidator(red_moves_first=False)
+    assert validator.accept(swap_perspective(_from_moves(moves[:-2]))).ok
+    result = validator.accept(swap_perspective(_from_moves(moves)))
+    assert result.ok, result.reason
+
+
+def test_yellow_first_round_in_wrong_order_is_rejected():
+    validator = BoardStateValidator(red_moves_first=False)
+    assert validator.accept(empty_board()).ok
+    result = validator.accept(_from_moves([3, 3]))
+    assert not result.ok
+    assert "turn order" in result.reason
+
+
+def test_cleared_board_after_draw_starts_a_new_game():
+    validator = BoardStateValidator()
+    drawn = np.array(
+        [[1, 1, 2, 2, 1, 1, 2], [2, 2, 1, 1, 2, 2, 1]] * 3,
+        dtype=np.int8,
+    )
+    assert validator.accept(drawn).ok
+    result = validator.accept(empty_board())
+    assert result.ok, result.reason
+    assert "new game" in result.reason

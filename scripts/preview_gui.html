@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pefforza 4 · Desktop preview</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #111622; color: #f2f1e8; font: 14px system-ui, sans-serif; }
+  main { max-width: 1040px; margin: auto; padding-bottom: 20px; }
+  header { padding: 12px 20px 0; color: #a1acbe; font-size: 12px; }
+  img { display: block; width: 100%; aspect-ratio: 1040 / 820; touch-action: manipulation; }
+  nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; }
+  button { border: 1px solid #303a4e; border-radius: 8px; background: #1a2131;
+    color: #f2f1e8; min-width: 40px; min-height: 36px; padding: 6px 12px; cursor: pointer; }
+  button:hover, button:focus-visible { outline: 2px solid #b3e7cb; outline-offset: 2px; }
+  #status { padding: 0 20px; color: #b3e7cb; margin: 0; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+</style>
+<main>
+  <header>LIVE DESKTOP PREVIEW · The real Python game, streamed to your browser. One shared round.</header>
+  <img id="game" src="/frame.png" alt="Pefforza Connect Four board. Use the column buttons or keyboard to play.">
+  <nav aria-label="Game controls">
+    <button data-key="1" aria-label="Drop in column 1">1</button>
+    <button data-key="2" aria-label="Drop in column 2">2</button>
+    <button data-key="3" aria-label="Drop in column 3">3</button>
+    <button data-key="4" aria-label="Drop in column 4">4</button>
+    <button data-key="5" aria-label="Drop in column 5">5</button>
+    <button data-key="6" aria-label="Drop in column 6">6</button>
+    <button data-key="7" aria-label="Drop in column 7">7</button>
+    <button data-key="r">New round</button>
+    <button data-key="u">Undo</button>
+    <button data-key="h">Hint</button>
+    <button data-key="d">Change difficulty &amp; restart</button>
+  </nav>
+  <p id="status" role="status" aria-live="polite">Connecting to the game…</p>
+  <pre id="board" class="sr-only" aria-label="Board rows from top to bottom"></pre>
+</main>
+<script>
+  const token = '__TOKEN__';
+  const game = document.querySelector('#game');
+  const status = document.querySelector('#status');
+  async function send(payload) {
+    try {
+      const result = await fetch('/event', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Preview-Token': token },
+        body: JSON.stringify(payload) });
+      if (!result.ok) throw new Error('Input rejected');
+    } catch { status.textContent = 'Preview disconnected. Reload to reconnect.'; }
+  }
+  document.querySelectorAll('[data-key]').forEach(button => {
+    button.addEventListener('click', () => send({kind: 'key', key: button.dataset.key}));
+  });
+  document.addEventListener('keydown', event => {
+    if (event.target.closest('button') && ['Enter', ' '].includes(event.key)) return;
+    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    if (['1','2','3','4','5','6','7','r','u','h','d','ArrowLeft','ArrowRight','Enter',' '].includes(key)) {
+      event.preventDefault();
+      if (!event.repeat) send({kind: 'key', key});
+    }
+  });
+  function pointer(event, kind) {
+    const bounds = game.getBoundingClientRect();
+    send({kind, x: Math.min(1039, Math.max(0, Math.floor((event.clientX - bounds.left) * 1040 / bounds.width))),
+      y: Math.min(819, Math.max(0, Math.floor((event.clientY - bounds.top) * 820 / bounds.height)))});
+  }
+  game.addEventListener('click', event => pointer(event, 'click'));
+  let lastMove = 0;
+  game.addEventListener('pointermove', event => {
+    if (Date.now() - lastMove > 100) { pointer(event, 'move'); lastMove = Date.now(); }
+  });
+  async function refresh() {
+    try {
+      const [image, response] = await Promise.all([fetch('/frame.png'), fetch('/state')]);
+      if (!image.ok || !response.ok) throw new Error('Preview unavailable');
+      const next = URL.createObjectURL(await image.blob());
+      const previous = game.src;
+      game.src = next;
+      if (previous.startsWith('blob:')) URL.revokeObjectURL(previous);
+      const state = await response.json();
+      status.textContent = `${state.difficulty} · ${state.moves} moves · ${state.status}`;
+      status.dataset.moves = state.moves;
+      status.dataset.gameOver = state.gameOver;
+      document.querySelector('#board').textContent = state.board.map(row => row.map(
+        cell => cell === 1 ? 'X' : cell === 2 ? 'O' : '.').join(' ')).join('\n');
+    } catch { status.textContent = 'Preview disconnected. Reconnecting…'; }
+    setTimeout(refresh, 80);
+  }
+  refresh();
+</script>
+</html>
