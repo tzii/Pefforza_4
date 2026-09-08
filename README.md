@@ -17,6 +17,7 @@
 </p>
 
 <p align="center">
+  <a href="https://tzii.github.io/Pefforza_4/">Project website &amp; demo</a> &bull;
   <a href="#quick-start">Quick start</a> &bull;
   <a href="#play">Play</a> &bull;
   <a href="#architecture">Architecture</a> &bull;
@@ -200,6 +201,26 @@ python -m pefforza.agent.evaluate \
 For a quick subjective challenge, just run `play_cli.py` or `play_gui.py`.
 
 ## Develop
+
+### Project website
+
+The [GitHub Pages showcase](https://tzii.github.io/Pefforza_4/) lives in
+[`website/`](website/README.md). It includes
+a scroll-driven project tour and a standalone browser Connect Four demo. Requires
+Node.js 22.13 or later:
+
+```bash
+cd website
+npm ci
+npm run dev
+```
+
+Run `npm test`, `npm run typecheck`, `npm run lint`, and `npm run build:pages` in that
+directory to validate the Pages export. Website changes on `main` deploy through
+the `Project website` GitHub Actions workflow. The browser demo is independent of the full Python
+solver and PPO agent; camera and voice features remain in the Python application.
+
+### Python quality gates
 
 Run the quality gates before pushing:
 

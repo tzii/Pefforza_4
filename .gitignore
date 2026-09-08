@@ -55,3 +55,6 @@ output.png
 
 # --- Agent tooling worktrees (contains full project copies) ---
 .kilo/worktrees/
+
+# Website publishing metadata (source remains in website/)
+.site-publish.git/
