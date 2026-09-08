@@ -3,6 +3,21 @@
 Reviewed on 7 September 2026, starting from `81689a2` on
 `hoplite/metapontion-2c5eead6`. The local `main` branch was still at `5f56812`.
 
+## Current handoff · 8 September 2026
+
+The implementation is committed and pushed on `codex/tactical-lessons` at
+[`9ed3453`](https://github.com/tzii/Pefforza_4/commit/9ed3453a9dc485990a54c966cf105a273f22c9e6).
+[CI run 34174853077](https://github.com/tzii/Pefforza_4/actions/runs/34174853077)
+passed all seven jobs: 506 tests with 89% coverage in every Linux/Windows test
+configuration, plus both clean wheel checks. The
+[release verification report](RELEASE_VERIFICATION.md) records the exact SHA,
+installed-model/game evidence, native mouse walkthrough, and exclusions.
+
+The immediate work is native keyboard and display acceptance, followed by
+reviewing and merging the desktop refresh. Hardware acceptance remains required
+before presenting the camera and audible-speech paths as verified. The dated
+counts below describe earlier stages of the review.
+
 ## Assessment
 
 The refresh is a strong foundation for a student showcase. Separating the game
@@ -16,7 +31,8 @@ The prior verification numbers were reproduced on Windows with Python 3.13.15:
 446 tests passed, with 88% package coverage. The initial Windows type check
 failed because a multiprocessing pipe was annotated as a Unix connection.
 The review fixes the platform-specific annotation and adds a Windows 3.13 CI
-lane alongside the existing Linux versions. Remote CI still needs to run.
+lane alongside the existing Linux versions. Remote CI subsequently passed as
+recorded in the current handoff above.
 
 The Windows renderer also selected Arial Narrow for the requested DejaVu Sans
 font. An explicit platform font preference improves the result. The difficulty
@@ -71,22 +87,32 @@ free-play hint support trap, checks installed wheels outside the checkout, and
 extends cancellation sequences. Use that report for current verification and
 remaining native/hardware exclusions.
 
-1. **Ship the existing refresh.** Review its public API changes in
-   [PROJECT_STATUS.md](PROJECT_STATUS.md), run CI, and merge the reviewed branch.
-   Remove the temporary branch-selection note once `main` contains the refresh.
-   A normal clone should deliver the screenshot and controls promised by the README.
-2. **Finish platform and hardware acceptance.** Exercise native resize, keyboard
-   play, quitting during search, undo during animation, and model-load failure.
-   On a physical board, check both AI colors, mirrored numbering, occlusion,
-   calibration cancellation, win/draw handling, and speech shutdown. Record the
-   OS, camera, lighting, result, and any failure. Headless coverage is not a
-   substitute for these checks.
-3. **Build an honest AI report card.** Compare fixed seeds and alternating sides
+1. **Finish native desktop acceptance.** Manually exercise keyboard column
+   selection and shortcuts, smaller laptop windows, and the supported display
+   scaling settings. Check quitting during search, undo during animation, and
+   visible model-load fallback. The mouse walkthrough at the default canvas and
+   maximized size already passed; native keyboard injection did not register,
+   so keyboard acceptance is still open. Record the OS, display size/scaling,
+   full commit SHA, result, and any failure. Define the supported minimum window
+   size if text or controls become too small.
+2. **Ship the reviewed desktop refresh.** Review the public API changes in
+   [PROJECT_STATUS.md](PROJECT_STATUS.md), open a PR from
+   `codex/tactical-lessons`, and check CI for its final head before merging.
+   Remove the temporary branch-selection instructions when `main` contains the
+   refresh. A normal clone should deliver the screenshot and controls promised
+   by the README. This handoff does not merge the branch.
+3. **Complete physical-board and speech acceptance.** On real hardware, check
+   camera-open failure, calibration cancellation, both AI colors, mirrored
+   numbering, full columns, occlusion/rejected frames, resync, win/draw handling,
+   disconnect, and speech shutdown with and without an available backend.
+   Record camera, lighting, OS, commit SHA, expected result, and observed result.
+   Keep these capabilities explicitly unverified until this pass is complete.
+4. **Build an honest AI report card.** Compare fixed seeds and alternating sides
    against random, heuristic, and search opponents. Report wins/losses/draws,
    illegal-action fallbacks, and median/p95 move time separately. Label proven
    solver results separately from budget-expired choices. Establish this before
    investing in self-play or replacing the bundled checkpoint.
-4. **Measure camera confidence.** Collect cropped, consented board fixtures under
+5. **Measure camera confidence.** Collect cropped, consented board fixtures under
    several lighting conditions. Separate tuning and held-out sets. Track per-cell
    errors, rejected boards, and plausible-but-wrong accepted boards. Tune HSV
    thresholds against those results before attempting automatic calibration.

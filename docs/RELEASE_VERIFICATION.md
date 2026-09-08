@@ -1,9 +1,11 @@
 # Desktop release verification
 
 This pass continues `codex/tactical-lessons` from `81689a2`, including the
-previously uncommitted lessons, Windows fixes, camera scheduling, fallback
-labels, and browser rendering changes. Use `git rev-parse HEAD` to identify the
-revision under test. The GitHub Actions run must match that same full SHA.
+lessons, Windows fixes, camera scheduling, fallback labels, and browser rendering
+changes committed and pushed as
+[`9ed3453a9dc485990a54c966cf105a273f22c9e6`](https://github.com/tzii/Pefforza_4/commit/9ed3453a9dc485990a54c966cf105a273f22c9e6).
+The results below describe that implementation revision. For later changes,
+record the tested full SHA and its matching Actions run.
 
 ## Changes checked
 
@@ -25,6 +27,27 @@ revision under test. The GitHub Actions run must match that same full SHA.
   scripts needed by their tests. CI runs on branch pushes as well as PRs, with
   Linux Python 3.10–3.13 and Windows Python 3.13 checks, plus Linux/Windows wheel
   checks using Python 3.12.
+
+## Published CI evidence · 8 September 2026
+
+[Actions run 34174853077](https://github.com/tzii/Pefforza_4/actions/runs/34174853077)
+completed successfully for
+`9ed3453a9dc485990a54c966cf105a273f22c9e6`. All seven jobs passed:
+
+| Checks | Platforms | Result |
+| :--- | :--- | :--- |
+| Ruff lint/format, Mypy, browser motion tests, Pytest | Linux Python 3.10, 3.11, 3.12, 3.13; Windows Python 3.13 | 506 tests passed and 89% package coverage in each configuration; all other checks passed |
+| Build, clean wheel install, dependency check, entrypoints, model and game smoke test | Linux and Windows, Python 3.12 | Both jobs passed |
+
+Both wheel logs confirm imports from the fresh virtual environment's
+`site-packages`, no broken dependencies, and all three installed entrypoints'
+`--help` checks. The bundled checkpoint loaded and inferred column 4; the
+installed Hard search worker finished a 10-move game without fallback on each OS.
+
+The branch is published; it has not been merged as part of this verification.
+CI establishes the automated software and distribution results. The remaining
+native input, display, camera, and speech checks are listed below and ordered
+in [NEXT_STEPS.md](NEXT_STEPS.md).
 
 ## Reproduce
 
@@ -71,10 +94,6 @@ The clean wheel environment passed `pip check` and all three entrypoints'
 the empty board), and finished a 10-move game with the Hard worker without a
 fallback. This used SB3 2.9.0, PyTorch 2.14.0, and NumPy 2.5.3, resolved from
 the declared dependencies rather than the existing development environment.
-
-The shared result is the Actions run
-whose head SHA matches the checked-out revision; inspect both the test jobs and
-the distribution jobs. A passing source suite alone does not verify the wheel.
 
 Native mouse walkthrough on 8 September 2026 passed: a move and Hard reply,
 Undo, Hint, horizontal and vertical lesson completion, Next lesson, return to
