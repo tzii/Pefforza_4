@@ -14,7 +14,7 @@ from pefforza.agent.difficulty import build_opponent
 from pefforza.cli import gui_game
 from pefforza.cli.gui_game import GameSession, OpponentWorker
 from pefforza.constants import COLS, ROWS, WIN_LENGTH
-from pefforza.rules import available_columns
+from pefforza.rules import available_columns, check_winner, next_open_row, swap_perspective
 
 HUMAN_WIN = [0, 6, 1, 6, 2, 5, 3]
 AI_WIN = [0, 6, 1, 6, 2, 6, 4, 6]
@@ -182,6 +182,37 @@ def test_hint_explains_win_block_or_center_without_playing(moves, column, reason
     assert _state(game)[:4] == state[:4]
 
 
+@pytest.mark.parametrize("player", [1, 2])
+@pytest.mark.parametrize("mirrored", [False, True])
+def test_hint_and_worker_fallback_avoid_the_support_trap(worker, player, mirrored):
+    # Published counterexample, converted from one-based columns.
+    game = _game([5, 4, 1, 5, 6, 6, 0, 4])
+    board = game.board if player == 1 else swap_perspective(game.board)
+    if mirrored:
+        board = board[:, ::-1].copy()
+    original = board.copy()
+    worker.difficulty = "not-a-difficulty"
+    worker.request(board, player)
+    for move in (gui_game._suggest_move(board, player)[0], _wait_move(worker)):
+        assert move in available_columns(board) and move != 3
+        moved = board.copy()
+        moved[next_open_row(moved, move), move] = player
+        for reply in available_columns(moved):
+            replied = moved.copy()
+            replied[next_open_row(replied, reply), reply] = 3 - player
+            assert check_winner(replied) != 3 - player
+    np.testing.assert_array_equal(board, original)
+
+
+def test_hint_reports_unavoidable_immediate_loss():
+    game = _game([6, 1, 6, 2, 5, 3])
+    assert not game.game_over
+    before = game.board.copy()
+    assert game.hint() in available_columns(game.board)
+    assert "Every move allows an immediate winning reply" in game.status
+    np.testing.assert_array_equal(game.board, before)
+
+
 def test_hint_does_not_interrupt_ai_turn():
     game = _game([3])
     state = _state(game)
@@ -235,13 +266,15 @@ def worker():
 
 
 def _wait_move(worker):
-    deadline = time.monotonic() + 10
+    # Let the application's watchdog respond before the test gives up, even
+    # when process startup is slower under coverage on Windows.
+    deadline = time.monotonic() + gui_game._WORKER_TIMEOUT_SECONDS + 5
     while time.monotonic() < deadline:
         move = worker.poll()
         if move is not None:
             return move
         time.sleep(0.01)
-    pytest.fail("Spawned opponent did not respond within 10 seconds")
+    pytest.fail("Spawned opponent did not respond before its watchdog deadline")
 
 
 def test_worker_is_lazy_spawned_and_keeps_seeded_opponent_between_moves(worker):
@@ -309,6 +342,43 @@ def test_close_is_idempotent_and_permanent(worker):
     assert not worker.busy
     assert worker._process is None
     assert worker.poll() is None
+
+
+def test_buffered_workers_are_reaped_across_free_play_and_lesson_sequences():
+    from pefforza.cli.play_gui import GameApp
+
+    app = GameApp("easy", seed=13, animate=False)
+    try:
+        for command in ("undo", "lessons", "difficulty", "restart"):
+            app.drop(3, 0)
+            app.worker.request(app.session.board, 2)
+            process = app.worker._process
+            assert process is not None
+            pid = process.pid
+            deadline = time.monotonic() + 10
+            while not app.worker._connection.poll() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert app.worker._connection.poll(), "Worker did not buffer its reply"
+            app.command(command)
+            assert pid not in {child.pid for child in multiprocessing.active_children()}
+            assert app.worker._process is None
+            assert app.worker.poll() is None
+            if command == "lessons":
+                app.command("next")
+                app.command("undo")
+                app.tick(1000)
+                assert app.worker._process is None
+                app.command("lessons")
+            app.tick(2000)
+            assert app.session.moves == []
+            assert not app.worker.busy
+        app.drop(3, 3000)
+        app.worker.request(app.session.board, 2)
+        pid = app.worker._process.pid
+        app.close()
+        assert pid not in {child.pid for child in multiprocessing.active_children()}
+    finally:
+        app.close()
 
 
 @pytest.mark.parametrize(
@@ -386,14 +456,14 @@ def _never_respond(connection, difficulty, seed, model_path):
 
 def _illegal_response(connection, difficulty, seed, model_path):
     job_id, _, _ = connection.recv()
-    connection.send((job_id, seed, None))
+    connection.send((job_id, seed, None, difficulty))
     connection.close()
 
 
 def _stale_then_current_response(connection, difficulty, seed, model_path):
     job_id, _, _ = connection.recv()
-    connection.send((job_id - 1, 0, None))
-    connection.send((job_id, 4, None))
+    connection.send((job_id - 1, 0, None, difficulty))
+    connection.send((job_id, 4, None, difficulty))
     connection.close()
 
 
@@ -464,3 +534,20 @@ def test_worker_start_failure_is_recoverable(worker, monkeypatch):
     assert "could not start" in worker.error
     assert not worker.busy
     assert worker._connection is None
+
+
+def test_neural_worker_reports_active_fallback_across_moves_and_cancel(tmp_path):
+    worker = OpponentWorker("neural", model_path=tmp_path / "missing.zip")
+    game = _game([3])
+    try:
+        worker.request(game.board, 2)
+        assert _wait_move(worker) in available_columns(game.board)
+        assert worker.active_difficulty == "medium"
+        assert worker.error is None
+        worker.request(game.board, 2)
+        assert _wait_move(worker) in available_columns(game.board)
+        assert worker.active_difficulty == "medium"
+        worker.cancel()
+        assert worker.active_difficulty == "neural"
+    finally:
+        worker.close()

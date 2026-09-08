@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -54,3 +56,20 @@ def test_describe_difficulties_lists_all_tiers():
     text = describe_difficulties()
     for name in ("easy", "medium", "hard", "impossible", "neural"):
         assert name in text
+
+
+@pytest.mark.parametrize("failure", ["missing", "import", "load"])
+def test_neural_fallback_reports_medium_without_requiring_a_model(tmp_path, monkeypatch, failure):
+    path = tmp_path / "model.zip"
+    if failure != "missing":
+        path.write_bytes(b"test fixture")
+
+    def fail_load(*args):
+        raise ValueError("Invalid checkpoint")
+
+    module = None if failure == "import" else SimpleNamespace(PPO=SimpleNamespace(load=fail_load))
+    monkeypatch.setitem(sys.modules, "stable_baselines3", module)
+    notifications = []
+    agent = build_opponent("neural", model_path=path, on_fallback=notifications.append)
+    assert notifications == ["medium"]
+    assert agent(empty_board(), 1, list(range(COLS))) == COLS // 2

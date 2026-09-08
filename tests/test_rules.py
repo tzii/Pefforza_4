@@ -15,7 +15,29 @@ from pefforza.rules import (
     next_open_row,
     player_to_move,
     swap_perspective,
+    tactically_safe_columns,
 )
+
+
+@pytest.mark.parametrize(
+    "moves,expected",
+    [
+        ([], list(range(COLS))),
+        ([0] * ROWS, list(range(1, COLS))),
+        ([5, 4, 1, 5, 6, 6, 0, 4], [0, 1, 2, 4, 5, 6]),
+        ([0, 6, 1, 6, 4, 6], [6]),
+        ([0, 6, 1, 6, 2, 6], [3, 6]),
+        ([6, 1, 6, 2, 5, 3], []),
+    ],
+)
+def test_tactically_safe_columns(moves, expected):
+    board = empty_board()
+    for index, col in enumerate(moves):
+        board[next_open_row(board, col), col] = 1 + index % 2
+    before = board.copy()
+    assert tactically_safe_columns(board, 1) == expected
+    np.testing.assert_array_equal(board, before)
+    assert tactically_safe_columns(swap_perspective(board), 2) == expected
 
 
 def test_player_to_move_follows_token_counts():

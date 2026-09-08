@@ -38,9 +38,10 @@ python scripts/benchmark_search.py --depths 6 8 --skip-solver
 The environment-variable prefix above is POSIX shell syntax. In PowerShell, use
 `$env:PEFFORZA_TTS_BACKEND = "null"` before the pytest command.
 
-The desktop can be exercised without a native display through
-`python scripts/preview_gui.py`: this streams the actual Pygame renderer and
-forwards a small allowlist of controls. It is a **development-only**, single-game
+The game controller can be exercised without a native display through
+`python scripts/preview_gui.py`: this serves a browser view with vector pieces,
+native text, local animation, and a small allowlist of controls. It is a
+**development-only**, single-game
 remote. Its HTTP server is not a production deployment or security boundary;
 keep it on loopback or inside an access-controlled sandbox. No camera footage,
 accounts, model uploads, or arbitrary repository files are exposed.
@@ -69,10 +70,14 @@ Synthetic tests cannot substitute for that pass on real devices.
 
 ## The next experiments worth doing
 
+The [software follow-up](NEXT_STEPS.md) now implements six tactical lessons,
+cancellable physical-board search, and visible desktop fallback reporting.
+Its camera work leaves calibration and token classification unchanged.
+
 | Priority | Experiment | What would count as success |
 | :--- | :--- | :--- |
 | 1 | **A vision confidence lab**: record consented, cropped board fixtures across lighting conditions, then calibrate HSV thresholds | Report per-cell errors and rejected/incorrect whole-board reads on a held-out set, not only attractive demo footage. |
-| 2 | **Tiny tactical lessons**: curated win/block/fork puzzles with a move explanation | Every puzzle has a verified solution; students can compare their choice with the existing hint/search result. |
+| 2 | **Extend the tactical lessons**: build on the six checked-in win/block/fork/safety challenges | New puzzles have legal replay sequences and independently checked answers. |
 | 3 | **A fair AI report card**: repeatable match seeds, alternating sides, timing and uncertainty | A trained candidate improves across a fixed opponent suite, not just one lucky game. Keep the old model as a baseline. |
 | 4 | **Curriculum / historical-policy training** | Beat the random-opponent baseline on held-out opponents without regressing legal-play behavior. |
 | 5 | **Stronger exact openings**, via a reviewed native solver or opening database | Measure proof rate, latency, packaging cost, and platform support before changing the default. |

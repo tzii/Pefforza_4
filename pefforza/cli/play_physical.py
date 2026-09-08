@@ -24,9 +24,9 @@ import cv2
 from pefforza.agent.difficulty import (
     DEFAULT_DIFFICULTY,
     DIFFICULTY_NAMES,
-    build_opponent,
     describe_difficulties,
 )
+from pefforza.cli.gui_game import OpponentWorker
 from pefforza.constants import DEFAULT_MODEL_PATH
 from pefforza.rules import (
     available_columns,
@@ -86,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
 
     cap = cv2.VideoCapture(args.camera)
+    worker = OpponentWorker(args.difficulty, seed=args.seed, model_path=args.model)
     try:
         if not cap.isOpened():
             logger.error("Could not open webcam at index %d.", args.camera)
@@ -93,8 +94,6 @@ def main(argv: list[str] | None = None) -> int:
         ai_is_red = (args.ai_color == "red") if args.ai_color else _prompt_ai_color()
         ai_color_name = "RED" if ai_is_red else "YELLOW"
         print(f"AI will play as {ai_color_name} at difficulty: {args.difficulty}")
-
-        agent = build_opponent(args.difficulty, seed=args.seed, model_path=args.model)
 
         detector = BoardDetector()
         validator = BoardStateValidator()
@@ -119,11 +118,13 @@ def main(argv: list[str] | None = None) -> int:
             if key == ord("q"):
                 break
             if key == ord("r"):
+                worker.cancel()
                 validator.reset()
                 last_recommendation = None
                 game_over_message = None
                 print("Board tracking reset: the next analyzed state starts a new history.")
             if key == ord(" "):
+                worker.cancel()
                 last_recommendation = None
                 game_over_message = None
                 grid, _ = detector.process_frame(frame)
@@ -173,26 +174,24 @@ def main(argv: list[str] | None = None) -> int:
                             if not valid:
                                 print("Board is full.")
                             else:
-                                col = agent(agent_view, 1, valid)
-                                if col not in valid:
-                                    col = valid[0]
-                                # Two coordinate systems are involved: the arrow
-                                # must be drawn on the flipped display frame (the
-                                # same space the grid was classified in), while
-                                # the human plays on the physical board, whose
-                                # left-to-right order is opposite to the mirrored
-                                # display's.
-                                display_col = col
-                                physical_col = detector.physical_col(display_col)
-                                last_recommendation = display_col
-                                print(
-                                    f"AI ({ai_color_name}, {args.difficulty}) "
-                                    f"recommends physical column {physical_col + 1}"
-                                )
+                                worker.request(agent_view, 1)
+
+            # Poll only after handling resync/new analyses: an old result must
+            # never escape cancellation and be drawn over a newly read board.
+            col = worker.poll()
+            if col is not None:
+                last_recommendation = col
+                physical_col = detector.physical_col(col)
+                print(
+                    f"AI ({ai_color_name}, {worker.active_difficulty}) "
+                    f"recommends physical column {physical_col + 1}"
+                )
+                if worker.error:
+                    logger.warning(worker.error)
 
             cv2.putText(
                 display,
-                f"AI: {ai_color_name} ({args.difficulty}) | SPACE to analyze",
+                f"AI: {ai_color_name} ({worker.active_difficulty}) | SPACE to analyze",
                 (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
@@ -201,6 +200,16 @@ def main(argv: list[str] | None = None) -> int:
             )
             if detector.matrix is not None:
                 detector.draw_overlays(display)
+            if worker.busy:
+                cv2.putText(
+                    display,
+                    "Thinking... | r to cancel | q to quit",
+                    (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 255),
+                    2,
+                )
             if last_recommendation is not None:
                 detector.draw_move(display, last_recommendation)
                 recommended = detector.physical_col(last_recommendation) + 1
@@ -226,8 +235,11 @@ def main(argv: list[str] | None = None) -> int:
 
             cv2.imshow("Connect 4 - AI Assistant", display)
     finally:
-        cap.release()
-        cv2.destroyAllWindows()
+        try:
+            worker.close()
+        finally:
+            cap.release()
+            cv2.destroyAllWindows()
     return 0
 
 

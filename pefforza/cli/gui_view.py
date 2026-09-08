@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pygame
 
+from pefforza.cli.lessons import LESSONS
 from pefforza.constants import COLS, ROWS
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ BUTTONS = {
     "undo": pygame.Rect(688, 604, 142, 44),
     "hint": pygame.Rect(842, 604, 142, 44),
     "difficulty": pygame.Rect(688, 414, 296, 48),
+    "lessons": pygame.Rect(688, 660, 296, 44),
 }
 
 TIER_COPY = {
@@ -72,7 +74,11 @@ def map_pointer(event: pygame.event.Event, area: pygame.Rect) -> pygame.event.Ev
 class GameView:
     def __init__(self) -> None:
         self.fonts = {
-            size: pygame.font.SysFont("dejavusans", size, bold=size in (22, 32, 42))
+            size: pygame.font.SysFont(
+                ["segoeui", "helveticaneue", "dejavusans", "arial"],
+                size,
+                bold=size in (22, 32, 42),
+            )
             for size in (12, 14, 16, 18, 22, 32, 42)
         }
 
@@ -111,16 +117,22 @@ class GameView:
 
     def draw(self, screen: pygame.Surface, app: GameApp, now: int) -> None:
         game = app.session
+        lesson = LESSONS[app.lesson_index] if app.lesson_index is not None else None
         screen.fill(BG)
         for i, color in enumerate((RED, YELLOW, MINT, INK)):
             pygame.draw.circle(screen, color, (48 + (i % 2) * 13, 42 + (i // 2) * 13), 5)
         self.text(screen, "PEFFORZA 4", (82, 32), 22)
         self.text(screen, "A SMALL GAME. A CURIOUS MIND.", (714, 40), 12, MUTED)
         pygame.draw.line(screen, EDGE, (40, 88), (1000, 88))
-        self.text(screen, "Four in a row.", (48, 112), 42)
-        self.text(screen, "One more round?", (50, 167), 18, MUTED)
+        self.text(screen, "Tiny tactics." if lesson else "Four in a row.", (48, 112), 42)
+        self.text(screen, lesson.title if lesson else "One more round?", (50, 167), 18, MUTED)
         self.text(screen, "THE PLAYGROUND", (688, 126), 12, MINT)
-        self.text(screen, f"Move {len(game.moves) + (not game.game_over):02d}", (688, 153), 32)
+        counter = (
+            f"Lesson {app.lesson_index + 1:02d} / {len(LESSONS):02d}"
+            if app.lesson_index is not None
+            else f"Move {len(game.moves) + (not game.game_over):02d}"
+        )
+        self.text(screen, counter, (688, 153), 32)
 
         pygame.draw.rect(screen, (9, 13, 23), (42, 220, 588, 506), border_radius=28)
         pygame.draw.rect(screen, (38, 48, 72), (40, 212, 592, 508), border_radius=28)
@@ -175,28 +187,43 @@ class GameView:
                 turn = "A worthy draw."
         elif app.animation is not None:
             turn = "Nice drop." if app.animation[2] == 1 else "AI's move"
+        if lesson and app.animation is None:
+            turn = (
+                "You found it!"
+                if app.lesson_solved
+                else "Try again"
+                if app.lesson_attempted
+                else "Your challenge"
+            )
         self.text(screen, turn, (690, 234), 22, MINT)
         status = app.notice or game.status
         self.wrapped(screen, status, 690, 273, 292)
         self.text(screen, "X  YOU", (690, 343), 12, RED)
         self.text(screen, "O  AI", (875, 343), 12, YELLOW)
 
-        self.text(screen, "YOUR OPPONENT", (688, 393), 12, MUTED)
+        self.text(screen, "KEEP EXPLORING" if lesson else "YOUR OPPONENT", (688, 393), 12, MUTED)
         for name, rect in BUTTONS.items():
             fill = MINT if name == "restart" else PANEL
             pygame.draw.rect(screen, fill, rect, border_radius=12)
             if name != "restart":
                 pygame.draw.rect(screen, EDGE, rect, 1, border_radius=12)
-        self.text(screen, app.difficulty.title(), (704, 427), 16)
-        self.text(screen, "D  /  change", (874, 430), 12, MUTED)
-        self.wrapped(screen, TIER_COPY[app.difficulty][1], 688, 477, 296)
-        self.text(screen, "Play again" if game.game_over else "New round", (706, 557), 16, BG)
+        self.text(screen, "Next lesson" if lesson else app.opponent_label, (704, 427), 14)
+        self.text(screen, "N / next" if lesson else "D / new round", (874, 430), 12, MUTED)
+        copy = TIER_COPY[app.difficulty][1]
+        if app.worker.active_difficulty != app.difficulty:
+            copy = "Requested opponent unavailable. The active fallback is shown above."
+        if lesson:
+            copy = "One move, one idea. Retry freely; hints explain the answer."
+        self.wrapped(screen, copy, 688, 477, 296)
+        replay = "Try again" if lesson else "Play again" if game.game_over else "New round"
+        self.text(screen, replay, (706, 557), 16, BG)
         self.text(screen, "R", (958, 560), 12, BG)
         self.text(screen, "Undo   U", (704, 617), 14)
         self.text(screen, "Hint   H", (862, 617), 14)
-        self.text(screen, "NO PRESSURE. JUST PRACTICE.", (688, 680), 12, MUTED)
+        self.text(screen, "Free play" if lesson else "Tactical lessons", (704, 673), 14)
+        self.text(screen, "L", (958, 675), 12, MUTED)
         self.wrapped(
-            screen, "Try a thought. Take it back. Find your next good move.", 688, 706, 296
+            screen, "Try a thought. Take it back. Find your next good move.", 688, 718, 296
         )
         pygame.draw.line(screen, EDGE, (40, 788), (1000, 788))
         self.text(screen, "CLICK A COLUMN  /  KEYS 1-7", (48, 799), 12, MUTED)

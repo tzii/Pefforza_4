@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
     branches: [main]
 
@@ -16,12 +16,16 @@ concurrency:
 
 jobs:
   lint-and-test:
-    name: Lint & Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Lint & Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python-version: "3.13"
 
     steps:
       # Pinned by SHA (v4.2.2) per OWASP / OpenSSF guidance for third-party
@@ -56,6 +60,9 @@ jobs:
       - name: Mypy (type check)
         run: python -m mypy
 
+      - name: Browser motion tests
+        run: node --test tests/test_preview_motion.mjs
+
       - name: Pytest
         run: python -m pytest --cov=pefforza --cov-report=term-missing
         env:
@@ -67,8 +74,15 @@ jobs:
   # catches packaging regressions (missing package data, broken console
   # scripts) that source-checkout tests can't see.
   wheel-smoke-test:
-    name: Wheel smoke test
-    runs-on: ubuntu-latest
+    name: Wheel smoke test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout
@@ -90,13 +104,24 @@ jobs:
 
       - name: Install wheel into a clean venv
         run: |
-          python -m venv .venv-dist-test
-          .venv-dist-test/bin/pip install --upgrade pip
-          .venv-dist-test/bin/pip install dist/*.whl
+          python -m venv "$RUNNER_TEMP/pefforza-wheel-venv"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            wheel_python="$RUNNER_TEMP/pefforza-wheel-venv/Scripts/python.exe"
+          else
+            wheel_python="$RUNNER_TEMP/pefforza-wheel-venv/bin/python"
+          fi
+          echo "WHEEL_PYTHON=$wheel_python" >> "$GITHUB_ENV"
+          "$wheel_python" -m pip install --upgrade pip
+          "$wheel_python" -m pip install dist/*.whl
+          "$wheel_python" -m pip check
 
       - name: Smoke test entrypoints and bundled model
         run: |
-          .venv-dist-test/bin/pefforza-cli --help
-          .venv-dist-test/bin/pefforza-gui --help
-          .venv-dist-test/bin/pefforza-physical --help
-          .venv-dist-test/bin/python -c "from pefforza.constants import DEFAULT_MODEL_PATH; assert DEFAULT_MODEL_PATH.is_file(), DEFAULT_MODEL_PATH"
+          cd "$RUNNER_TEMP"
+          scripts_dir="$(dirname "$WHEEL_PYTHON")"
+          "$scripts_dir/pefforza-cli" --help
+          "$scripts_dir/pefforza-gui" --help
+          "$scripts_dir/pefforza-physical" --help
+          "$WHEEL_PYTHON" -I "$GITHUB_WORKSPACE/scripts/smoke_wheel.py"
+        env:
+          PEFFORZA_TTS_BACKEND: "null"

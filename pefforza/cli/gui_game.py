@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import multiprocessing
 import operator
+import sys
 import time
-from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 
@@ -19,7 +19,12 @@ from pefforza.agent.difficulty import DEFAULT_DIFFICULTY, build_opponent
 from pefforza.agent.minimax import find_immediate_win
 from pefforza.constants import COLS, DEFAULT_MODEL_PATH, ROWS, WIN_LENGTH
 from pefforza.envs.connect4_env import Connect4Env
-from pefforza.rules import Board, available_columns, check_winner
+from pefforza.rules import Board, available_columns, check_winner, tactically_safe_columns
+
+if sys.platform == "win32":
+    from multiprocessing.connection import PipeConnection as WorkerConnection
+else:
+    from multiprocessing.connection import Connection as WorkerConnection
 
 _WORKER_TIMEOUT_SECONDS = 15.0
 
@@ -32,9 +37,15 @@ def _suggest_move(board: Board, player: int) -> tuple[int | None, str]:
     win = find_immediate_win(snapshot, player, valid)
     if win is not None:
         return win, "Complete four in a row."
+    safe = tactically_safe_columns(snapshot, player)
+    if not safe:
+        return valid[0], "Every move allows an immediate winning reply."
     block = find_immediate_win(snapshot, 3 - player, valid)
-    if block is not None:
+    if block is not None and block in safe:
         return block, "Block an immediate four-in-a-row threat."
+    if valid[0] not in safe:
+        move = next(col for col in valid if col in safe)
+        return move, "Avoid giving your opponent an immediate winning reply."
     return valid[0], "Play near the center to create more connections."
 
 
@@ -135,25 +146,35 @@ class GameSession:
 
 
 def _opponent_loop(
-    connection: Connection,
+    connection: WorkerConnection,
     difficulty: str,
     seed: int | None,
     model_path: Path,
 ) -> None:
     opponent = None
+    active_difficulty = difficulty
+
+    def record_fallback(name: str) -> None:
+        nonlocal active_difficulty
+        active_difficulty = name
+
     try:
         while True:
             job_id, board, player = connection.recv()
             try:
                 if opponent is None:
-                    opponent = build_opponent(difficulty, seed=seed, model_path=model_path)
+                    opponent = build_opponent(
+                        difficulty, seed=seed, model_path=model_path, on_fallback=record_fallback
+                    )
                 move = opponent(board, player, available_columns(board))
                 if isinstance(move, (bool, np.bool_)):
                     raise TypeError("Expected an integer column, not a boolean.")
                 move = operator.index(move)
-                connection.send((job_id, move, None))
+                connection.send((job_id, move, None, active_difficulty))
             except Exception as exc:
-                connection.send((job_id, None, f"AI move failed ({type(exc).__name__})."))
+                connection.send(
+                    (job_id, None, f"AI move failed ({type(exc).__name__}).", active_difficulty)
+                )
     except (EOFError, OSError):
         pass
     finally:
@@ -175,12 +196,13 @@ class OpponentWorker:
         model_path: Path = DEFAULT_MODEL_PATH,
     ) -> None:
         self.difficulty = difficulty
+        self.active_difficulty = difficulty
         self.seed = seed
         self.model_path = model_path
         self.error: str | None = None
         self._context = multiprocessing.get_context("spawn")
         self._process: BaseProcess | None = None
-        self._connection: Connection | None = None
+        self._connection: WorkerConnection | None = None
         self._pending: tuple[Board, int] | None = None
         self._job_id = 0
         self._started_at = 0.0
@@ -236,7 +258,7 @@ class OpponentWorker:
         assert self._process is not None
         try:
             if self._connection.poll():
-                job_id, move, error = self._connection.recv()
+                job_id, move, error, active_difficulty = self._connection.recv()
                 if job_id == self._job_id:
                     if error:
                         return self._fallback(error)
@@ -250,6 +272,7 @@ class OpponentWorker:
                     ):
                         return self._fallback("AI returned an illegal column.")
                     self._pending = None
+                    self.active_difficulty = active_difficulty
                     return column
             if not self._process.is_alive() and not self._connection.poll():
                 return self._fallback("AI worker stopped unexpectedly.")
@@ -264,6 +287,7 @@ class OpponentWorker:
         board, player = self._pending
         move, _ = _suggest_move(board, player)
         self.error = f"{message} Using a legal fallback."
+        self.active_difficulty = "fallback"
         self._pending = None
         self._stop_process()
         return move
@@ -288,6 +312,7 @@ class OpponentWorker:
         self._pending = None
         self._job_id += 1
         self.error = None
+        self.active_difficulty = self.difficulty
         self._stop_process()
 
     def close(self) -> None:

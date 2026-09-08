@@ -1,3 +1,7 @@
 # Ensure the bundled PPO checkpoint ships in the sdist as well as the wheel;
 # the wheel path is covered by [tool.setuptools.package-data] in pyproject.toml.
 include pefforza/agent/models/notebook_model.zip
+# Source-distribution tests use the development preview; include its assets
+# and the separate installed-wheel verification script as well.
+recursive-include scripts *.py *.mjs *.html
+include tests/test_preview_motion.mjs

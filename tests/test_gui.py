@@ -19,12 +19,14 @@ from pefforza.cli.gui_view import (
     map_pointer,
     viewport,
 )
+from pefforza.cli.lessons import LESSONS
 from pefforza.constants import ROWS
-from scripts.preview_gui import parse_event
+from scripts.preview_gui import parse_event, snapshot
 
 
 class FakeWorker:
     def __init__(self, *args, **kwargs):
+        self.active_difficulty = args[0] if args else "hard"
         self.busy = False
         self.error = None
         self.result = None
@@ -253,3 +255,105 @@ def test_preview_translates_only_game_input():
     assert event.type == pygame.KEYDOWN and event.key == pygame.K_4
     event = parse_event({"kind": "click", "x": 80, "y": 240})
     assert event.pos == (80, 240) and event.button == 1
+
+
+@pytest.mark.parametrize("index", range(len(LESSONS)))
+def test_lessons_accept_solution_without_starting_opponent(app, index):
+    app.load_lesson(index)
+    lesson = LESSONS[index]
+    key(app, pygame.K_1 + lesson.answers[0])
+    app.tick(1000)
+    assert app.lesson_attempted and app.lesson_solved
+    assert app.session.status == lesson.explanation
+    assert app.worker.requests == 0
+    key(app, pygame.K_1)
+    assert app.session.moves == [*lesson.moves, lesson.answers[0]]
+    key(app, pygame.K_u)
+    assert app.session.moves == list(lesson.moves)
+    assert not app.lesson_attempted
+
+
+def test_lesson_retry_hint_next_and_free_play(app):
+    key(app, pygame.K_4)
+    app.tick(0)
+    app.worker.result = 2
+    key(app, pygame.K_l)
+    assert app.lesson_index == 0 and not app.worker.busy
+    key(app, pygame.K_1)
+    assert app.lesson_attempted and not app.lesson_solved
+    key(app, pygame.K_h)
+    assert app.session.status == LESSONS[0].explanation
+    key(app, pygame.K_r)
+    key(app, pygame.K_h)
+    assert app.hint_col == 3
+    key(app, pygame.K_n)
+    assert app.lesson_index == 1
+    key(app, pygame.K_l)
+    assert app.lesson_index is None
+    assert not app.session.moves
+    key(app, pygame.K_4)
+    app.tick(1)
+    assert app.worker.busy
+
+
+def test_lesson_animation_can_be_cancelled_and_cannot_start_ai(app):
+    app.load_lesson(0)
+    app.animate = True
+    key(app, pygame.K_4)
+    key(app, pygame.K_u)
+    app.tick(1000)
+    assert app.session.moves == list(LESSONS[0].moves)
+    key(app, pygame.K_4, now=1000)
+    app.tick(2000)
+    assert app.lesson_solved
+    assert app.worker.requests == 0
+
+
+def test_fallback_engine_is_visible_and_reset_clears_it(app):
+    app.difficulty = "neural"
+    app.worker.active_difficulty = "medium"
+    assert app.opponent_label == "Medium (fallback)"
+    app.worker.active_difficulty = "fallback"
+    assert app.opponent_label == "Legal fallback"
+
+
+def test_browser_snapshot_keeps_drop_separate_from_committed_board(app):
+    app.animate = True
+    key(app, pygame.K_4, now=100)
+    first = snapshot(app, 125)
+    second = snapshot(app, 140)
+    assert first["animation"]["id"] == second["animation"]["id"] == 100
+    assert first["animation"]["elapsed"] == 25
+    assert second["animation"]["elapsed"] == 40
+    assert first["animation"]["row"] == ROWS - 1
+    assert first["board"] == app.session.board.tolist()
+    assert first["moves"] == 0
+    key(app, pygame.K_u)
+    assert snapshot(app, 150)["animation"] is None
+    assert first["animation"] is not None
+
+
+def test_browser_snapshot_reports_lessons_fallback_and_winning_cells(app):
+    app.load_lesson(0)
+    key(app, pygame.K_4)
+    state = snapshot(app, 0)
+    assert state["lessonSolved"] and state["lessonAttempted"]
+    assert state["lessonTitle"] == LESSONS[0].title
+    assert len(state["winningCells"]) == 4
+    state["board"][0][0] = 2
+    assert app.session.board[0, 0] == 0
+    app.difficulty = "neural"
+    app.worker.active_difficulty = "medium"
+    assert snapshot(app, 0)["difficulty"] == "Medium (fallback)"
+
+
+@pytest.mark.parametrize("column", [-1, 7, True, 1.5, "3", None])
+def test_preview_rejects_invalid_column_selection(column):
+    with pytest.raises(ValueError):
+        parse_event({"kind": "select", "column": column})
+
+
+def test_preview_column_selection_uses_desktop_geometry(app):
+    app.handle_event(parse_event({"kind": "select", "column": 5}), 0)
+    assert app.selected_col == 5
+    assert not app.session.moves

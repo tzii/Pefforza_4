@@ -20,7 +20,8 @@ python -m pip install -e ".[dev]"
    ```bash
    python -m ruff check .
    python -m ruff format --check .
-   python -m mypy
+    python -m mypy
+    node --test tests/test_preview_motion.mjs
    python -m pytest --cov=pefforza
    ```
 
@@ -28,8 +29,9 @@ python -m pip install -e ".[dev]"
 
 For desktop changes, exercise a move and AI reply, undo while thinking, hints,
 replay after a result, resized input, and quitting. `python scripts/preview_gui.py`
-runs the real renderer in a local browser remote when no native display is
-available. Capture fresh screenshots; do not present mockups as running UI.
+runs a browser view of the shared controller when no native display is
+available. It renders HTML/SVG rather than the native Pygame window; verify the
+native layout separately. Capture fresh screenshots of the relevant interface.
 Camera/audio changes need synthetic regression tests plus clearly stated
 hardware verification limits. See the [audit checklist](docs/PROJECT_STATUS.md).
 

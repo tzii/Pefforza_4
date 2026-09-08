@@ -6,6 +6,8 @@
 | :--- | :--- |
 | Install, play, or use the camera | [Project README](../README.md) |
 | Understand what works and what still needs evidence | [Current project audit](PROJECT_STATUS.md) |
+| Reproduce the release checks and see their limits | [Release verification](RELEASE_VERIFICATION.md) |
+| Try tactical lessons or inspect the latest software changes | [Follow-up and next steps](NEXT_STEPS.md) |
 | Compare heuristic search with exact proofs | [Search engine notes](search_engine.md) |
 | Change the code safely | [Contributing](../CONTRIBUTING.md) and [agent conventions](../AGENTS.md) |
 | Explore training or vision interactively | [Notebooks](../notebooks/) |

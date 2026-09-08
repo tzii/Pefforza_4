@@ -131,11 +131,14 @@ def build_opponent(
     name: str,
     seed: int | None = None,
     model_path: Path | None = None,
+    *,
+    on_fallback: Callable[[str], None] | None = None,
 ) -> Agent:
     """Return an agent callable for the requested difficulty.
 
     Falls back to the heuristic agent if ``neural`` is requested but the model
     cannot be loaded — the game stays playable instead of crashing.
+    ``on_fallback``, when supplied, receives the active tier name at build time.
     """
     name = name.lower()
     if name in DIFFICULTIES:
@@ -143,19 +146,25 @@ def build_opponent(
 
     if name == "neural":
         path = Path(model_path or DEFAULT_MODEL_PATH)
+
+        def fallback() -> Agent:
+            if on_fallback is not None:
+                on_fallback("medium")
+            return heuristic_agent(seed=seed)
+
+        if not path.is_file():
+            logger.warning("Model not found at %s; using heuristic.", path)
+            return fallback()
         try:
             from stable_baselines3 import PPO  # local import; optional dep
         except Exception as exc:  # pragma: no cover - optional dep
             logger.warning("stable-baselines3 unavailable (%s); using heuristic.", exc)
-            return heuristic_agent(seed=seed)
-        if not path.exists():
-            logger.warning("Model not found at %s; using heuristic.", path)
-            return heuristic_agent(seed=seed)
+            return fallback()
         try:
             model = PPO.load(str(path))
         except Exception as exc:
             logger.warning("Failed to load %s (%s); using heuristic.", path, exc)
-            return heuristic_agent(seed=seed)
+            return fallback()
         return model_agent(model)
 
     raise ValueError(f"Unknown difficulty: {name!r}. Choose from {DIFFICULTY_NAMES}")

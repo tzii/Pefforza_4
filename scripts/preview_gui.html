@@ -1,90 +1,86 @@
 <!doctype html>
 <html lang="en">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pefforza 4 · Desktop preview</title>
+<meta name="preview-token" content="__TOKEN__">
+<title>Pefforza 4 · One more round?</title>
 <style>
+  :root { color-scheme: dark; --bg:#111622; --panel:#1a2131; --edge:#303a4e; --ink:#f2f1e8; --muted:#a1acbe; --mint:#b3e7cb; --coral:#f98478; --gold:#efcd6f; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #111622; color: #f2f1e8; font: 14px system-ui, sans-serif; }
-  main { max-width: 1040px; margin: auto; padding-bottom: 20px; }
-  header { padding: 12px 20px 0; color: #a1acbe; font-size: 12px; }
-  img { display: block; width: 100%; aspect-ratio: 1040 / 820; touch-action: manipulation; }
-  nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; }
-  button { border: 1px solid #303a4e; border-radius: 8px; background: #1a2131;
-    color: #f2f1e8; min-width: 40px; min-height: 36px; padding: 6px 12px; cursor: pointer; }
-  button:hover, button:focus-visible { outline: 2px solid #b3e7cb; outline-offset: 2px; }
-  #status { padding: 0 20px; color: #b3e7cb; margin: 0; }
-  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,sans-serif; }
+  main { max-width:1100px; margin:auto; padding:24px 32px; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding-bottom:24px; border-bottom:1px solid var(--edge); }
+  .brand { display:flex; align-items:center; gap:14px; font-size:22px; font-weight:750; letter-spacing:.02em; }
+  .mark { display:grid; grid-template-columns:repeat(2,8px); gap:4px; }
+  .mark i { width:8px; height:8px; border-radius:50%; background:var(--coral); }
+  .mark i:nth-child(2) { background:var(--gold); } .mark i:nth-child(3) { background:var(--mint); } .mark i:nth-child(4) { background:var(--ink); }
+  .eyebrow { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+  .layout { display:grid; grid-template-columns:minmax(0,1.8fr) minmax(285px,1fr); gap:40px; padding-top:24px; }
+  h1 { margin:0; font-size:clamp(30px,4vw,44px); line-height:1.15; letter-spacing:-.025em; }
+  #subtitle { margin:10px 0 0; color:var(--muted); font-size:18px; }
+  #game { display:block; width:100%; overflow:visible; margin-top:25px; touch-action:manipulation; cursor:pointer; }
+  .column-controls { display:grid; gap:4px; margin:4px 2.7% 0; }
+  button { font:inherit; color:var(--ink); background:var(--panel); border:1px solid var(--edge); border-radius:12px; padding:12px 16px; cursor:pointer; min-height:44px; }
+  button:hover:not(:disabled) { border-color:var(--mint); background:#253348; }
+  button:focus-visible { outline:3px solid var(--mint); outline-offset:3px; }
+  button:disabled { opacity:.45; cursor:default; }
+  .column-controls button { border-color:transparent; background:transparent; padding:4px; color:var(--muted); }
+  .column-controls button.selected { color:var(--mint); background:#253348; }
+  aside { padding-top:4px; }
+  #counter { font-size:32px; font-weight:700; margin:4px 0 24px; line-height:1.2; }
+  .turn-card { border-radius:20px; background:var(--panel); padding:22px; min-height:174px; }
+  #turn { margin:0; font-size:23px; line-height:1.25; color:var(--mint); }
+  #status { margin:12px 0 20px; color:var(--muted); min-height:48px; font-size:14px; }
+  .players { display:flex; justify-content:space-between; font-size:12px; letter-spacing:.05em; }
+  .players span:first-child { color:var(--coral); } .players span:last-child { color:var(--gold); }
+  .opponent { margin-top:22px; }
+  .wide { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; text-align:left; }
+  kbd { font:11px system-ui,sans-serif; color:var(--muted); white-space:nowrap; }
+  #difficulty-button { margin-top:8px; }
+  #opponent-copy { min-height:48px; margin:12px 0 22px; color:var(--muted); font-size:14px; }
+  .primary { background:var(--mint); color:var(--bg); border-color:var(--mint); }
+  .primary:hover:not(:disabled) { background:#c9f1dc; color:var(--bg); }
+  .primary kbd { color:var(--bg); }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:12px 0; }
+  .note { color:var(--muted); font-size:14px; margin:18px 0; }
+  footer { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; padding-top:18px; margin-top:22px; border-top:1px solid var(--edge); font-size:11px; color:var(--muted); letter-spacing:.04em; }
+  #connection { color:var(--mint); }
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .slot { fill:var(--bg); stroke:#3c475e; stroke-width:2; }
+  .winning { fill:none; stroke:var(--ink); stroke-width:3; }
+  @media (max-width:740px) {
+    main { padding:20px 18px; } .layout { grid-template-columns:1fr; gap:24px; }
+    header .eyebrow { display:none; } #game { margin-top:18px; }
+    aside { display:grid; grid-template-columns:1fr; } #counter { font-size:26px; margin-bottom:14px; }
+    .turn-card { min-height:0; } #status { min-height:0; } #opponent-copy { min-height:0; }
+  }
 </style>
+<script src="/preview_gui.mjs" type="module"></script>
+</head>
+<body>
 <main>
-  <header>LIVE DESKTOP PREVIEW · The real Python game, streamed to your browser. One shared round.</header>
-  <img id="game" src="/frame.png" alt="Pefforza Connect Four board. Use the column buttons or keyboard to play.">
-  <nav aria-label="Game controls">
-    <button data-key="1" aria-label="Drop in column 1">1</button>
-    <button data-key="2" aria-label="Drop in column 2">2</button>
-    <button data-key="3" aria-label="Drop in column 3">3</button>
-    <button data-key="4" aria-label="Drop in column 4">4</button>
-    <button data-key="5" aria-label="Drop in column 5">5</button>
-    <button data-key="6" aria-label="Drop in column 6">6</button>
-    <button data-key="7" aria-label="Drop in column 7">7</button>
-    <button data-key="r">New round</button>
-    <button data-key="u">Undo</button>
-    <button data-key="h">Hint</button>
-    <button data-key="d">Change difficulty &amp; restart</button>
-  </nav>
-  <p id="status" role="status" aria-live="polite">Connecting to the game…</p>
-  <pre id="board" class="sr-only" aria-label="Board rows from top to bottom"></pre>
+  <header><div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>PEFFORZA 4</div><span class="eyebrow">A small game. A curious mind.</span></header>
+  <div class="layout">
+    <section aria-label="Game board">
+      <h1 id="headline">Four in a row.</h1><p id="subtitle">One more round?</p>
+      <svg id="game" role="img" aria-label="Connect Four board. Use the column buttons below or keys 1 to 7."></svg>
+      <nav class="column-controls" aria-label="Choose a column"></nav>
+      <pre id="board" class="sr-only" aria-label="Board rows from top to bottom"></pre>
+    </section>
+    <aside aria-label="Game controls">
+      <div class="eyebrow">The playground</div><div id="counter">Move 01</div>
+      <div class="turn-card"><h2 id="turn">Your turn</h2><p id="status" role="status" aria-live="polite">Connecting to your game…</p><div class="players"><span>X &nbsp; YOU</span><span>O &nbsp; AI</span></div></div>
+      <div class="opponent"><div id="opponent-heading" class="eyebrow">Your opponent</div>
+      <button id="difficulty-button" class="wide" data-key="d"><span id="difficulty">Hard</span><kbd id="difficulty-key">D / new round</kbd></button>
+      <p id="opponent-copy">Depth-8 search. Bring your best ideas.</p></div>
+      <button class="wide primary" data-key="r"><span id="restart-label">New round</span><kbd>R</kbd></button>
+      <div class="pair"><button data-key="u">Undo <kbd>U</kbd></button><button data-key="h">Hint <kbd>H</kbd></button></div>
+      <button class="wide" data-key="l"><span id="lessons-label">Tactical lessons</span><kbd>L</kbd></button>
+      <p class="note">Try a thought. Take it back. Find your next good move.</p>
+    </aside>
+  </div>
+  <footer><span>CLICK A COLUMN · KEYS 1–7 · ARROWS + ENTER</span><span id="connection" role="status">Connecting…</span></footer>
 </main>
-<script>
-  const token = '__TOKEN__';
-  const game = document.querySelector('#game');
-  const status = document.querySelector('#status');
-  async function send(payload) {
-    try {
-      const result = await fetch('/event', { method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Preview-Token': token },
-        body: JSON.stringify(payload) });
-      if (!result.ok) throw new Error('Input rejected');
-    } catch { status.textContent = 'Preview disconnected. Reload to reconnect.'; }
-  }
-  document.querySelectorAll('[data-key]').forEach(button => {
-    button.addEventListener('click', () => send({kind: 'key', key: button.dataset.key}));
-  });
-  document.addEventListener('keydown', event => {
-    if (event.target.closest('button') && ['Enter', ' '].includes(event.key)) return;
-    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-    if (['1','2','3','4','5','6','7','r','u','h','d','ArrowLeft','ArrowRight','Enter',' '].includes(key)) {
-      event.preventDefault();
-      if (!event.repeat) send({kind: 'key', key});
-    }
-  });
-  function pointer(event, kind) {
-    const bounds = game.getBoundingClientRect();
-    send({kind, x: Math.min(1039, Math.max(0, Math.floor((event.clientX - bounds.left) * 1040 / bounds.width))),
-      y: Math.min(819, Math.max(0, Math.floor((event.clientY - bounds.top) * 820 / bounds.height)))});
-  }
-  game.addEventListener('click', event => pointer(event, 'click'));
-  let lastMove = 0;
-  game.addEventListener('pointermove', event => {
-    if (Date.now() - lastMove > 100) { pointer(event, 'move'); lastMove = Date.now(); }
-  });
-  async function refresh() {
-    try {
-      const [image, response] = await Promise.all([fetch('/frame.png'), fetch('/state')]);
-      if (!image.ok || !response.ok) throw new Error('Preview unavailable');
-      const next = URL.createObjectURL(await image.blob());
-      const previous = game.src;
-      game.src = next;
-      if (previous.startsWith('blob:')) URL.revokeObjectURL(previous);
-      const state = await response.json();
-      status.textContent = `${state.difficulty} · ${state.moves} moves · ${state.status}`;
-      status.dataset.moves = state.moves;
-      status.dataset.gameOver = state.gameOver;
-      document.querySelector('#board').textContent = state.board.map(row => row.map(
-        cell => cell === 1 ? 'X' : cell === 2 ? 'O' : '.').join(' ')).join('\n');
-    } catch { status.textContent = 'Preview disconnected. Reconnecting…'; }
-    setTimeout(refresh, 80);
-  }
-  refresh();
-</script>
+</body>
 </html>

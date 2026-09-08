@@ -87,6 +87,31 @@ def player_to_move(board: Board, first_player: int = AI_PLAYER) -> int:
     return first_player if first == second else 3 - first_player
 
 
+def tactically_safe_columns(board: Board, player: int) -> list[int]:
+    """Moves that win now or leave no immediate winning opponent reply.
+
+    This is a one-reply check, not a proof of the eventual game outcome.
+    The input board must be nonterminal and is never modified.
+    """
+    safe = []
+    for col in available_columns(board):
+        moved = board.copy()
+        moved[next_open_row(moved, col), col] = player
+        if check_winner(moved) == player:
+            safe.append(col)
+            continue
+        for reply in available_columns(moved):
+            row = next_open_row(moved, reply)
+            moved[row, reply] = 3 - player
+            wins = check_winner(moved) == 3 - player
+            moved[row, reply] = EMPTY
+            if wins:
+                break
+        else:
+            safe.append(col)
+    return safe
+
+
 def swap_perspective(board: Board) -> Board:
     """Swap player ids 1 <-> 2 without touching empty cells.
 
@@ -109,4 +134,5 @@ __all__ = [
     "next_open_row",
     "player_to_move",
     "swap_perspective",
+    "tactically_safe_columns",
 ]

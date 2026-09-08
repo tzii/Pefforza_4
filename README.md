@@ -36,8 +36,12 @@ experiment with reinforcement learning. Serious ideas, low-pressure play.
 
 Use **Python 3.10–3.13**. A CPU is enough; a GPU is not required.
 
+**Development version.** The desktop refresh and lessons are on
+`codex/tactical-lessons`. The command below selects that build; the default
+branch still contains the earlier interface.
+
 ```bash
-git clone https://github.com/tzii/Pefforza_4.git
+git clone --branch codex/tactical-lessons https://github.com/tzii/Pefforza_4.git
 cd Pefforza_4
 python -m venv .venv
 ```
@@ -83,16 +87,36 @@ color-only, and the winning line stays highlighted until you choose what is next
 | :--- | :--- |
 | Click a column or press **1–7** | Drop a piece |
 | **← / →**, then **Enter** or **Space** | Select a column and drop |
-| **H** / Hint | Explain a quick win, block, or center-oriented suggestion; never plays for you |
+| **H** / Hint | Suggest a win, block, or move that avoids an immediate losing reply; never plays for you |
 | **U** / Undo | Return to your previous decision, including during AI thinking or after a result |
 | **R** / New round | Clear the board and play again |
 | **D** / Difficulty | Cycle the opponent **and start a new round** |
+| **L** / Tactical lessons | Open six short challenges, or return to a fresh free-play round |
+| **N** / Next lesson | Advance to the next challenge while in lessons |
 | **Esc** / close window | Leave immediately, even while the AI is searching |
 
 Resize the window to fit your screen. Prefer less motion? Run
 `pefforza-gui --no-animate`. Use `--seed 4` for repeatable random-opponent sessions.
-Hints are simple teaching aids, not deep-search proofs. Undo restores the board;
+Hints check the opponent's immediate replies and say when every move allows a
+winning reply. They are teaching aids, not deep-search proofs. Undo restores the board;
 the restarted AI worker also resets its random sequence and search cache.
+
+### Tiny tactics, one move at a time
+
+```bash
+pefforza-gui --lessons
+```
+
+Find horizontal, vertical, and diagonal wins; block a threat; create a fork;
+and avoid giving your opponent a winning reply. Each challenge starts from a
+legal move sequence and checks your answer without playing an AI reply.
+**U** or **R** retries the same position, **H** explains it, and **N** moves on.
+The final lesson accepts several safe moves—safety here means avoiding an
+immediate loss, not proving a win. Completing a lesson does not affect free play.
+
+<p align="center">
+  <img src="assets/pefforza-lessons.png" alt="Tiny tactics: a fork puzzle with a board, a short challenge, and retry, hint, next-lesson, and free-play controls." width="960">
+</p>
 
 ## Choose your opponent
 
@@ -109,6 +133,8 @@ proofs give optimal moves. If the time budget runs out, the fallback avoids an
 immediate loss when a safe move exists—but can still miss a deeper tactic.
 The neural model is experimental, not automatically stronger than search; if it
 cannot load, the game warns and uses the medium-style heuristic instead.
+The desktop then labels the opponent **Medium (fallback)**. A worker failure or
+timeout is labeled **Legal fallback**; the next turn can retry the requested AI.
 
 ```bash
 pefforza-gui --difficulty medium
@@ -132,6 +158,12 @@ pefforza-physical --difficulty hard --ai-color yellow --camera 0
 4. Read the AR arrow and printed column. Press **r** to reset tracking if the
    board has changed unexpectedly; **q** quits. Moving the camera requires a
    fresh calibration, not just a tracking reset.
+
+Search runs in a cancellable process so the camera window keeps refreshing while
+the AI thinks. **r**, **q**, and a new **Space** analysis discard the pending
+result. Recommendations refer to the last board you explicitly analyzed; press
+**Space** again after moving a piece. Calibration and HSV detection are unchanged
+by this responsiveness update.
 
 The feed is mirrored. The arrow uses display coordinates; the printed/HUD column
 uses the physical board's left-to-right numbering. Implausible states are
@@ -225,14 +257,22 @@ python -m pytest --cov=pefforza
 ```
 
 Tests cover rules, full games, search equivalence, terminal play, desktop
-controls and worker cancellation, camera validation, and voice failure paths.
+controls and worker cancellation, every tactical-lesson answer and fork reply,
+camera validation, and voice failure paths.
 They use synthetic frames and fake devices—not a webcam, speaker, or trained
 checkpoint. CI checks Python 3.10–3.13 and smoke-tests the built wheel.
 
-For a headless development demo of the **real desktop app**, run
-`python scripts/preview_gui.py` and visit `http://127.0.0.1:3000`. This is a local
-development remote with one shared game, not a production web service or a
-browser-based camera mode. Restart the command after source edits. Hoplite uses
+For a headless browser view of the **same Python game controller**, run
+`python scripts/preview_gui.py` and visit `http://127.0.0.1:3000`. Browser text
+and vector pieces stay crisp when zoomed, and drops animate locally at the
+display's refresh cadence instead of streaming low-frame-rate screenshots.
+The layout stacks on small screens and respects reduced-motion preferences.
+Rules, AI, undo, and lesson answers still run in Python.
+
+This is a local development remote with one shared game, not a production web
+service or a browser-based camera mode. Restart the command and refresh the page
+after source edits. The browser animation checks use Node 18+:
+`node --test tests/test_preview_motion.mjs`. Hoplite uses
 the versioned setup/run commands in [`.hoplite/settings.json`](.hoplite/settings.json).
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and [AGENTS.md](AGENTS.md)
@@ -252,6 +292,9 @@ test and a reproducible example.
 
 See the [current audit and next experiments](docs/PROJECT_STATUS.md) for evidence,
 remaining risks, and a focused roadmap.
+
+The [follow-up review](docs/NEXT_STEPS.md) records Windows verification and an
+ordered plan for release, hardware acceptance, and small tactical lessons.
 
 ---
 

@@ -23,6 +23,38 @@ def _board(moves):
     return board
 
 
+class CameraWorker:
+    def __init__(self):
+        self.requests = []
+        self.busy = False
+        self.error = None
+        self.active_difficulty = "hard"
+        self.delay = 0
+        self.closed = False
+
+    def request(self, board, player):
+        if self.busy:
+            return
+        self.requests.append((board.copy(), player))
+        self.busy = True
+
+    def poll(self):
+        if not self.busy:
+            return None
+        if self.delay:
+            self.delay -= 1
+            return None
+        self.busy = False
+        return 2
+
+    def cancel(self):
+        self.busy = False
+
+    def close(self):
+        self.closed = True
+        self.cancel()
+
+
 def _camera_harness(monkeypatch, module, boards, *, opened=True):
     frame = np.zeros((100, 100, 3), dtype=np.uint8)
     camera = Mock()
@@ -39,6 +71,9 @@ def _camera_harness(monkeypatch, module, boards, *, opened=True):
     monkeypatch.setattr(module.cv2, "destroyAllWindows", Mock())
     monkeypatch.setattr(module.cv2, "waitKey", lambda _: ord(" "))
     monkeypatch.setattr(module.cv2, "putText", Mock())
+    if module is play_physical:
+        detector.worker = CameraWorker()
+        monkeypatch.setattr(module, "OpponentWorker", lambda *a, **kw: detector.worker)
     return camera, detector
 
 
@@ -147,10 +182,8 @@ def test_physical_bad_read_clears_stale_arrow(monkeypatch, missing):
     bad = good.copy()
     bad[0, 0] = 2
     _, detector = _camera_harness(monkeypatch, play_physical, [good, None if missing else bad])
-    agent = Mock(return_value=2)
-    monkeypatch.setattr(play_physical, "build_opponent", lambda *a, **kw: agent)
     assert play_physical.main(["--ai-color", "yellow"]) == 0
-    agent.assert_called_once()
+    assert len(detector.worker.requests) == 1
     detector.draw_move.assert_called_once()
     assert play_physical.cv2.imshow.call_count == 2
 
@@ -160,14 +193,90 @@ def test_physical_draw_announced_instead_of_waiting_for_opponent(monkeypatch, ca
         [[1, 1, 2, 2, 1, 1, 2], [2, 2, 1, 1, 2, 2, 1]] * (ROWS // 2),
         dtype=np.int8,
     )
-    _camera_harness(monkeypatch, play_physical, [drawn])
-    agent = Mock(return_value=2)
-    monkeypatch.setattr(play_physical, "build_opponent", lambda *a, **kw: agent)
+    _, detector = _camera_harness(monkeypatch, play_physical, [drawn])
     assert play_physical.main(["--ai-color", "yellow"]) == 0
-    agent.assert_not_called()
+    assert not detector.worker.requests
     output = capsys.readouterr().out
     assert "DRAW" in output
     assert "Opponent's turn" not in output
+
+
+@pytest.mark.parametrize("cancel_key", ["r", "q", " "])
+def test_physical_pending_search_is_discarded_on_resync_quit_or_bad_read(monkeypatch, cancel_key):
+    good = _board([3])
+    bad = good.copy()
+    bad[0, 0] = 2
+    camera, detector = _camera_harness(monkeypatch, play_physical, [good, bad, bad])
+    detector.worker.delay = 1
+    keys = iter([ord(" "), ord(cancel_key), ord("q")])
+    monkeypatch.setattr(play_physical.cv2, "waitKey", lambda _: next(keys))
+    assert play_physical.main(["--ai-color", "yellow"]) == 0
+    assert len(detector.worker.requests) == 1
+    detector.draw_move.assert_not_called()
+    assert detector.worker.closed
+    camera.release.assert_called_once()
+
+
+@pytest.mark.parametrize("color,moves,player", [("yellow", [3], 2), ("red", [3, 4], 1)])
+def test_physical_search_keeps_frames_flowing_and_uses_agent_perspective(
+    monkeypatch, color, moves, player
+):
+    board = _board(moves)
+    _, detector = _camera_harness(monkeypatch, play_physical, [board] * 4)
+    detector.worker.delay = 2
+    keys = iter([ord(" "), 0, 0, ord("q")])
+    monkeypatch.setattr(play_physical.cv2, "waitKey", lambda _: next(keys))
+    assert play_physical.main(["--ai-color", color]) == 0
+    assert len(detector.worker.requests) == 1
+    snapshot, perspective = detector.worker.requests[0]
+    np.testing.assert_array_equal(snapshot, swap_perspective(board) if player == 2 else board)
+    assert perspective == 1
+    assert play_physical.cv2.imshow.call_count == 3
+    detector.draw_move.assert_called_once()
+    assert detector.worker.closed
+
+
+def test_physical_disconnect_closes_pending_worker(monkeypatch):
+    camera, detector = _camera_harness(monkeypatch, play_physical, [_board([3])])
+    detector.worker.delay = 100
+    assert play_physical.main(["--ai-color", "yellow"]) == 0
+    assert detector.worker.closed
+    detector.draw_move.assert_not_called()
+    camera.release.assert_called_once()
+
+
+@pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize("observation", ["new_turn", "human_turn", "winner", "draw", "missing"])
+def test_new_camera_analysis_invalidates_pending_and_visible_recommendations(
+    monkeypatch, pending, observation
+):
+    old_moves = [0, 6, 0, 6, 0] if observation == "winner" else [3]
+    boards = {
+        "new_turn": _board([3, 2, 4]),
+        "human_turn": _board([3, 2]),
+        "winner": _board([*old_moves, 5, 0]),
+        "draw": np.array(
+            [[1, 1, 2, 2, 1, 1, 2], [2, 2, 1, 1, 2, 2, 1]] * (ROWS // 2), dtype=np.int8
+        ),
+        "missing": None,
+    }
+    old_board = _board(old_moves)
+    if observation == "draw":
+        old_board = boards[observation].copy()
+        old_board[0, 2] = 0
+    _, detector = _camera_harness(monkeypatch, play_physical, [old_board, boards[observation]])
+    detector.worker.delay = int(pending)
+    drawn_frames = []
+    monkeypatch.setattr(
+        play_physical.cv2,
+        "imshow",
+        lambda *args: drawn_frames.append(detector.draw_move.call_count),
+    )
+    assert play_physical.main(["--ai-color", "yellow"]) == 0
+    assert len(detector.worker.requests) == (2 if observation == "new_turn" else 1)
+    first = 0 if pending else 1
+    assert drawn_frames == [first, first + (observation == "new_turn")]
+    assert detector.worker.closed
 
 
 @pytest.mark.parametrize("save_result", [True, False, "exception"])

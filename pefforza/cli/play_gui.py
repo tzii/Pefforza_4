@@ -25,6 +25,7 @@ from pefforza.cli.gui_view import (
     map_pointer,
     viewport,
 )
+from pefforza.cli.lessons import LESSONS
 from pefforza.constants import COLS, DEFAULT_MODEL_PATH
 from pefforza.rules import next_open_row
 
@@ -53,6 +54,22 @@ class GameApp:
         self.animation_duration = 0
         self.notice = ""
         self.running = True
+        self.lesson_index: int | None = None
+        self.lesson_attempted = False
+        self.lesson_solved = False
+
+    def load_lesson(self, index: int) -> None:
+        self.lesson_index = index % len(LESSONS)
+        self.restart()
+
+    @property
+    def opponent_label(self) -> str:
+        active = self.worker.active_difficulty
+        if active == "fallback":
+            return "Legal fallback"
+        if active != self.difficulty:
+            return f"{active.title()} (fallback)"
+        return self.difficulty.title()
 
     def restart(self) -> None:
         self.worker.cancel()
@@ -60,8 +77,45 @@ class GameApp:
         self.hint_col = None
         self.notice = ""
         self.session.restart()
+        self.lesson_attempted = False
+        self.lesson_solved = False
+        if self.lesson_index is not None:
+            lesson = LESSONS[self.lesson_index]
+            for col in lesson.moves:
+                self.session.play(col)
+            self.session.status = lesson.prompt
+
+    def commit_drop(self, col: int) -> None:
+        if not self.session.play(col):
+            return
+        if self.lesson_index is not None:
+            lesson = LESSONS[self.lesson_index]
+            self.lesson_attempted = True
+            self.lesson_solved = col in lesson.answers
+            if self.lesson_solved:
+                self.session.status = lesson.explanation
+            else:
+                self.session.status = "Not quite. Press U to retry, or H for an explanation."
 
     def command(self, name: str) -> None:
+        if name == "lessons":
+            if self.lesson_index is None:
+                self.load_lesson(0)
+            else:
+                self.lesson_index = None
+                self.restart()
+            return
+        if self.lesson_index is not None:
+            if name in ("next", "difficulty"):
+                self.load_lesson(self.lesson_index + 1)
+            elif name in ("restart", "undo"):
+                self.restart()
+            elif name == "hint" and self.animation is None:
+                lesson = LESSONS[self.lesson_index]
+                self.session.status = lesson.explanation
+                if not self.lesson_attempted:
+                    self.hint_col = self.selected_col = lesson.answers[0]
+            return
         if name == "restart":
             self.restart()
         elif name == "undo":
@@ -89,6 +143,8 @@ class GameApp:
             self.restart()
 
     def drop(self, col: int, now: int) -> None:
+        if self.lesson_index is not None and self.lesson_attempted:
+            return
         if self.session.game_over or self.animation is not None or not 0 <= col < COLS:
             return
         row = next_open_row(self.session.board, col)
@@ -101,7 +157,7 @@ class GameApp:
             self.animation_duration = max(180, (row + 1) * 45)
             self.animation = (col, row, self.session.current_player, now)
         else:
-            self.session.play(col)
+            self.commit_drop(col)
 
     def handle_event(self, event: pygame.event.Event, now: int) -> None:
         if event.type == pygame.QUIT:
@@ -123,13 +179,22 @@ class GameApp:
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 self.running = False
-            elif event.key in (pygame.K_r, pygame.K_u, pygame.K_h, pygame.K_d):
+            elif event.key in (
+                pygame.K_r,
+                pygame.K_u,
+                pygame.K_h,
+                pygame.K_d,
+                pygame.K_l,
+                pygame.K_n,
+            ):
                 self.command(
                     {
                         pygame.K_r: "restart",
                         pygame.K_u: "undo",
                         pygame.K_h: "hint",
                         pygame.K_d: "difficulty",
+                        pygame.K_l: "lessons",
+                        pygame.K_n: "next",
                     }[event.key]
                 )
             elif event.key in (pygame.K_LEFT, pygame.K_RIGHT):
@@ -152,7 +217,9 @@ class GameApp:
             if now - start < self.animation_duration:
                 return
             self.animation = None
-            self.session.play(col)
+            self.commit_drop(col)
+        if self.lesson_index is not None:
+            return
         if self.session.game_over or self.session.current_player == 1:
             return
         if not self.worker.busy:
@@ -170,13 +237,16 @@ class GameApp:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Play Connect Four. Click or use 1-7; R replay, U undo, H hint, D difficulty.",
+        description=(
+            "Play Connect Four. Click or use 1-7; R new round, U undo, H hint, D difficulty."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Difficulty tiers:\n" + describe_difficulties(),
     )
     parser.add_argument("--difficulty", choices=DIFFICULTY_NAMES, default=DEFAULT_DIFFICULTY)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL_PATH)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--lessons", action="store_true", help="Start with six tactical lessons.")
     parser.add_argument("--no-animate", action="store_true", help="Place pieces without motion.")
     return parser.parse_args(argv)
 
@@ -187,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
     pygame.display.init()
     pygame.font.init()
     app = GameApp(args.difficulty, args.seed, args.model, animate=not args.no_animate)
+    if args.lessons:
+        app.load_lesson(0)
     try:
         desktop = pygame.display.Info()
         size = (min(WIDTH, desktop.current_w - 80), min(HEIGHT, desktop.current_h - 80))

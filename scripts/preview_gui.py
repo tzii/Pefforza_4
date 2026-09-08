@@ -1,10 +1,9 @@
-"""Development-only browser remote for the real Pygame app (one shared game)."""
+"""Development browser view of the shared Python game controller."""
 
 from __future__ import annotations
 
 import argparse
 import contextlib
-import io
 import json
 import os
 import queue
@@ -16,13 +15,20 @@ from pathlib import Path
 
 import pygame
 
-from pefforza.cli.gui_view import HEIGHT, WIDTH, GameView
+from pefforza.cli.gui_view import HEIGHT, TIER_COPY, WIDTH, cell_center
+from pefforza.cli.lessons import LESSONS
 from pefforza.cli.play_gui import GameApp
+from pefforza.constants import COLS, ROWS
 
 
 def parse_event(payload: dict) -> pygame.event.Event:
     """Accept only the input primitives used by the preview page."""
     kind = payload.get("kind")
+    if kind == "select":
+        column = payload.get("column")
+        if type(column) is not int or not 0 <= column < COLS:
+            raise ValueError("Invalid column")
+        return pygame.event.Event(pygame.MOUSEMOTION, pos=cell_center(0, column))
     if kind in ("click", "move"):
         x, y = payload["x"], payload["y"]
         if type(x) is not int or type(y) is not int or not (0 <= x < WIDTH and 0 <= y < HEIGHT):
@@ -35,6 +41,8 @@ def parse_event(payload: dict) -> pygame.event.Event:
         "u": pygame.K_u,
         "h": pygame.K_h,
         "d": pygame.K_d,
+        "l": pygame.K_l,
+        "n": pygame.K_n,
         "ArrowLeft": pygame.K_LEFT,
         "ArrowRight": pygame.K_RIGHT,
         "Enter": pygame.K_RETURN,
@@ -45,15 +53,65 @@ def parse_event(payload: dict) -> pygame.event.Event:
     raise ValueError("Unsupported input")
 
 
+def snapshot(app: GameApp, now: int) -> dict:
+    """One coherent state, including timing for browser-local interpolation.
+
+    The board remains pre-drop until the controller commits the move. An
+    animation's start tick is its identity; repeated snapshots must not restart it.
+    """
+    game = app.session
+    lesson = LESSONS[app.lesson_index] if app.lesson_index is not None else None
+    animation = None
+    if app.animation is not None:
+        column, row, player, start = app.animation
+        animation = {
+            "id": start,
+            "column": column,
+            "row": row,
+            "player": player,
+            "duration": app.animation_duration,
+            "elapsed": max(0, now - start),
+        }
+    return {
+        "rows": ROWS,
+        "columns": COLS,
+        "moves": len(game.moves),
+        "board": game.board.tolist(),
+        "player": game.current_player,
+        "gameOver": game.game_over,
+        "winner": game.winner,
+        "winningCells": game.winning_cells,
+        "difficulty": app.opponent_label,
+        "opponentCopy": (
+            TIER_COPY[app.difficulty][1]
+            if app.worker.active_difficulty == app.difficulty
+            else "Requested opponent unavailable. The active fallback is shown above."
+        ),
+        "lesson": app.lesson_index,
+        "lessonTitle": lesson.title if lesson else None,
+        "lessonCount": len(LESSONS),
+        "lessonSolved": app.lesson_solved,
+        "lessonAttempted": app.lesson_attempted,
+        "selectedColumn": app.hint_col if app.hint_col is not None else app.selected_col,
+        "status": app.notice or game.status,
+        "animation": animation,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=3000)
     args = parser.parse_args()
     token = secrets.token_urlsafe(24)
-    page = Path(__file__).with_name("preview_gui.html").read_text().replace("__TOKEN__", token)
+    page = (
+        Path(__file__)
+        .with_name("preview_gui.html")
+        .read_text(encoding="utf-8")
+        .replace("__TOKEN__", token)
+    )
+    javascript = Path(__file__).with_name("preview_gui.mjs").read_bytes()
     inputs: queue.Queue[pygame.event.Event] = queue.Queue(maxsize=64)
-    frame = b""
     state = b"{}"
 
     class Handler(BaseHTTPRequestHandler):
@@ -64,15 +122,15 @@ def main() -> None:
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
-            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+            with contextlib.suppress(ConnectionError):
                 self.wfile.write(content)
 
         def do_GET(self) -> None:
             path = self.path.split("?", 1)[0]
             if path == "/":
                 self.respond(200, page.encode(), "text/html; charset=utf-8")
-            elif path == "/frame.png":
-                self.respond(200 if frame else 503, frame, "image/png")
+            elif path == "/preview_gui.mjs":
+                self.respond(200, javascript, "text/javascript; charset=utf-8")
             elif path == "/state":
                 self.respond(200, state, "application/json")
             else:
@@ -101,18 +159,16 @@ def main() -> None:
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
     pygame.display.init()
-    pygame.font.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_mode((1, 1))
     app = GameApp(seed=4)
     signal.signal(signal.SIGINT, signal.default_int_handler)
     signal.signal(signal.SIGTERM, lambda *_: setattr(app, "running", False))
-    view = GameView()
+    state = json.dumps(snapshot(app, pygame.time.get_ticks())).encode()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print(f"Pygame development preview on http://{args.host}:{args.port}", flush=True)
+    print(f"Pefforza browser preview on http://{args.host}:{args.port}", flush=True)
     clock = pygame.time.Clock()
-    last_frame = -100
     try:
         while app.running:
             now = pygame.time.get_ticks()
@@ -125,23 +181,7 @@ def main() -> None:
                     break
                 app.handle_event(event, now)
             app.tick(now)
-            if now - last_frame >= 66:
-                view.draw(screen, app, now)
-                output = io.BytesIO()
-                pygame.image.save(screen, output, "frame.png")
-                frame = output.getvalue()
-                state = json.dumps(
-                    {
-                        "moves": len(app.session.moves),
-                        "board": app.session.board.tolist(),
-                        "player": app.session.current_player,
-                        "gameOver": app.session.game_over,
-                        "winner": app.session.winner,
-                        "difficulty": app.difficulty,
-                        "status": app.notice or app.session.status,
-                    }
-                ).encode()
-                last_frame = now
+            state = json.dumps(snapshot(app, now)).encode()
             clock.tick(60)
     except KeyboardInterrupt:
         pass
