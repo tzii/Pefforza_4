@@ -71,11 +71,13 @@ def train(
             reset_num_timesteps=False,
             tb_log_name="PPO",
         )
-        ckpt = models_dir / f"ppo_connect4_{timesteps * i}"
+        # SB3 appends ".zip" when the path has no suffix; name the checkpoints
+        # explicitly so the logged/returned paths actually exist on disk.
+        ckpt = models_dir / f"ppo_connect4_{timesteps * i}.zip"
         model.save(str(ckpt))
         logger.info("Saved checkpoint: %s", ckpt)
 
-    final = models_dir / "ppo_connect4"
+    final = models_dir / "ppo_connect4.zip"
     model.save(str(final))
     logger.info("Saved final model: %s", final)
     return final

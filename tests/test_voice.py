@@ -117,3 +117,46 @@ def test_env_var_selects_null_backend(monkeypatch: pytest.MonkeyPatch):
         time.sleep(0.05)
     finally:
         engine.shutdown()
+
+
+def test_low_confidence_commentary_says_tricky():
+    backend = RecordingBackend()
+    engine = _make_engine(backend)
+    try:
+        engine.play_move_commentary(0, confidence=0.2)
+        assert backend.wait()
+    finally:
+        engine.shutdown()
+    assert "column 1" in backend.utterances[0]
+    assert "Hmm, tricky." in backend.utterances[0]
+
+
+def test_shutdown_is_idempotent():
+    engine = _make_engine(RecordingBackend())
+    engine.shutdown()
+    # Second shutdown: worker thread already gone, must return quietly.
+    engine.shutdown()
+
+
+def test_pyttsx3_init_failure_disables_engine(monkeypatch: pytest.MonkeyPatch):
+    """When the default backend cannot initialize, the engine goes inert."""
+    # CI runs the suite with PEFFORZA_TTS_BACKEND=null; this test exercises
+    # the default-backend resolution path, so clear the override for now.
+    monkeypatch.delenv("PEFFORZA_TTS_BACKEND", raising=False)
+
+    class _RaisingBackend:
+        def __init__(self, rate: int = 150) -> None:
+            raise RuntimeError("no audio device")
+
+    monkeypatch.setattr("pefforza.interaction.voice.Pyttsx3Backend", _RaisingBackend)
+    engine = VoiceEngine()
+    try:
+        engine.speak("never spoken")
+        # The flag flips on the worker thread: poll with a deadline instead
+        # of guessing a fixed sleep.
+        deadline = time.monotonic() + 2.0
+        while engine._available and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert engine._available is False
+    finally:
+        engine.shutdown()
