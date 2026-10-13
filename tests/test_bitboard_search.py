@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 
 import numpy as np
+import pytest
 
 from pefforza.agent.minimax import MinimaxAgent, evaluate_position
 from pefforza.agent.search import BitboardSearchAgent, BitPosition, PerfectSolver
@@ -186,3 +187,49 @@ def test_perfect_solver_weak_mode_normalizes_to_win_draw_loss():
     for one_based_moves, expected in cases.items():
         position = BitPosition.from_moves(int(ch) - 1 for ch in one_based_moves)
         assert PerfectSolver().solve(position, weak=True).score == expected
+
+
+# ------------------------------------------------- BitboardSearchAgent API
+
+
+def test_agent_rejects_depth_below_one():
+    with pytest.raises(ValueError):
+        BitboardSearchAgent(depth=0)
+    with pytest.raises(ValueError):
+        BitboardSearchAgent(depth=4).search(empty_board(), 1, depth=0)
+
+
+def test_select_falls_back_when_engine_column_not_in_valid():
+    """The published move must always be one of the caller's valid columns."""
+    agent = BitboardSearchAgent(depth=2)
+    assert agent.select(empty_board(), 1, valid=[0]) == 0
+
+
+def test_full_board_search_returns_sentinel():
+    """A full board has no legal move: report the (-1, 0) sentinel."""
+    full = np.array(
+        [
+            [1, 2, 1, 2, 1, 2, 1],
+            [1, 2, 1, 2, 1, 2, 1],
+            [2, 1, 2, 1, 2, 1, 2],
+            [2, 1, 2, 1, 2, 1, 2],
+            [1, 2, 1, 2, 1, 2, 1],
+            [1, 2, 1, 2, 1, 2, 1],
+        ],
+        dtype=np.int8,
+    )
+    assert check_winner(full) == 0  # fixture sanity
+    result = BitboardSearchAgent(depth=2).search(full, my_id=1)
+    assert result.column == -1
+    assert result.score == 0
+
+
+def test_analyze_scores_every_legal_move():
+    """``analyze`` exposes exact per-move scores; the best equals ``search``."""
+    agent = BitboardSearchAgent(depth=4)
+    board, _to_move = _board_from_moves([3, 3, 2, 4])
+    scores = agent.analyze(board, my_id=1)
+    assert set(scores) == {c for c in range(COLS) if board[0, c] == 0}
+    search = agent.search(board, my_id=1)
+    assert search.score == max(scores.values())
+    assert scores[search.column] == search.score

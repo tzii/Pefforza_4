@@ -192,3 +192,85 @@ def test_physical_col_is_mirrored_when_flipped():
     assert detector.physical_col(0) == COLS - 1
     assert detector.physical_col(COLS - 1) == 0
     assert detector.physical_col(COLS // 2) == COLS - 1 - (COLS // 2)
+
+
+# ------------------------------------------- calibration-dependent helpers
+
+
+def _calibrated_detector() -> BoardDetector:
+    """Detector calibrated over a sub-rectangle of a larger camera frame.
+
+    The overlay helpers map board-space points *above* the board (negative
+    y) back into frame space, so the fixture needs the board offset inside
+    the frame the way a real calibration would be.
+    """
+    detector = BoardDetector()
+    x0, y0 = 150, 200
+    frame_corners = np.array(
+        [
+            [x0, y0],
+            [x0 + detector.width, y0],
+            [x0 + detector.width, y0 + detector.height],
+            [x0, y0 + detector.height],
+        ],
+        dtype=np.float32,
+    )
+    board_corners = np.array(
+        [
+            [0, 0],
+            [detector.width, 0],
+            [detector.width, detector.height],
+            [0, detector.height],
+        ],
+        dtype=np.float32,
+    )
+    # calibrate() stores the frame -> board transform.
+    detector.matrix = cv2.getPerspectiveTransform(frame_corners, board_corners)
+    return detector
+
+
+def _blank_frame(height: int = 900, width: int = 1000) -> np.ndarray:
+    return np.zeros((height, width, 3), dtype=np.uint8)
+
+
+def test_process_frame_before_calibration_returns_none():
+    detector = BoardDetector()
+    assert detector.process_frame(_blank_frame()) == (None, None)
+
+
+def test_process_frame_warps_and_classifies():
+    detector = _calibrated_detector()
+    grid, warped = detector.process_frame(_blank_frame())
+    assert grid.shape == (ROWS, COLS)
+    assert grid.dtype == np.int8
+    assert warped.shape == (detector.height, detector.width, 3)
+
+
+def test_draw_overlays_and_move_are_noops_before_calibration():
+    detector = BoardDetector()
+    frame = _blank_frame()
+    detector.draw_overlays(frame)
+    detector.draw_move(frame, col=3)
+    assert not frame.any()
+
+
+def test_draw_overlays_and_move_annotate_when_calibrated():
+    detector = _calibrated_detector()
+    frame = _blank_frame()
+    detector.draw_overlays(frame)
+    assert frame.any()  # column numbers were drawn
+    frame2 = _blank_frame()
+    detector.draw_move(frame2, col=3)
+    assert frame2.any()  # arrow was drawn
+
+
+def test_transform_points_maps_board_coords_back_to_frame():
+    detector = _calibrated_detector()
+    board_pts = [(100, -50), (350, -20)]
+    mapped = detector._transform_points(board_pts)
+    assert len(mapped) == 2
+    for (x, y), (mx, my) in zip(board_pts, mapped, strict=True):
+        assert isinstance(mx, int) and isinstance(my, int)
+        # Inverse of the frame->board homography: the board point lands at
+        # the same offset inside the frame's board rectangle.
+        assert (mx, my) == (x + 150, y + 200)

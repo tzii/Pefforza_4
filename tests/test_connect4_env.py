@@ -111,3 +111,19 @@ def test_valid_action_mask(env: Connect4Env):
     mask = env.valid_action_mask()
     assert not mask[2]
     assert mask.sum() == COLS - 1
+
+
+def test_render_human_mode_prints_board(capsys):
+    env = Connect4Env(render_mode="human")
+    env.reset()
+    env.render()
+    out = capsys.readouterr().out
+    assert "----" in out
+    assert str(env.board) in out
+
+
+def test_render_without_human_mode_is_silent(capsys):
+    env = Connect4Env(render_mode=None)
+    env.reset()
+    env.render()
+    assert capsys.readouterr().out == ""
