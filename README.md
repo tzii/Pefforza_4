@@ -54,8 +54,8 @@ pip install -e ".[dev]"
 python play_gui.py
 ```
 
-Run the activation command for your operating system, then continue with the
-installation and launch commands.
+Plain requirements files work too: `pip install -r requirements-dev.txt`
+(runtime + dev) or `pip install -r requirements.txt` (runtime only).
 
 ## Architecture
 
@@ -72,33 +72,13 @@ installation and launch commands.
   - `interaction/voice.py` — thread-safe TTS wrapper.
 - `play_cli.py`, `play_gui.py`, `play_physical.py` — thin shims over `pefforza.cli` so `python play_cli.py` keeps working; `main.py` is a continuously-watching AR variant.
 - `notebooks/` — exploratory work (training demo, vision debugging, etc.).
-- `tests/` — pytest suite for `rules` and `Connect4Env`.
+- `tests/` — pytest suite: rules, environment, search, exact solver, board detector, CLI and voice.
 
 ## Requirements
 
 - Python 3.10 – 3.13
-- A C/C++ toolchain isn't needed for normal install; SB3 brings PyTorch (CPU is enough for inference and small-scale training).
-
-## Install
-
-```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
-source .venv/bin/activate
-
-# Editable install with dev tooling
-pip install -e ".[dev]"
-```
-
-If you prefer plain requirements files:
-
-```bash
-pip install -r requirements-dev.txt   # runtime + dev
-# or, runtime only
-pip install -r requirements.txt
-```
+- No C/C++ toolchain needed. Stable-Baselines3 pulls in PyTorch; CPU is enough
+  for inference and small-scale training.
 
 ## Play
 
@@ -119,7 +99,7 @@ After any `pip install` (editable or from a wheel), the console command is
 
 ```bash
 pefforza-cli                                        # default: hard
-python play_cli.py --difficulty impossible          # strongest current heuristic search
+python play_cli.py --difficulty impossible          # exact solver, ~3 s per move
 python play_cli.py --difficulty medium --voice      # easier opponent + TTS
 python play_cli.py --difficulty neural --model my.zip
 ```
