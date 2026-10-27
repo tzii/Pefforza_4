@@ -1,7 +1,15 @@
-"""Physical-board assistant: analyze the live webcam feed on demand.
+"""Physical-board assistant: read a real board through the webcam.
 
-Press SPACE to capture the current board state, run the chosen AI
-opponent, and overlay the recommended column. Press 'q' to quit.
+Two capture modes share one analysis path:
+
+* default (on demand): press SPACE to capture the current board state, run
+  the chosen AI opponent, and overlay the recommended column;
+* ``--watch``: the board is read every frame, and a reading is analyzed
+  only once it has been identical for ``--stable-frames`` consecutive frames
+  (hands and falling tokens never reach the AI). New recommendations are
+  announced once, by voice when ``--voice`` is on.
+
+Press 'r' to reset board tracking and 'q' to quit.
 
 Difficulty tiers (same as ``play_gui.py``):
   easy        Random opponent.
@@ -17,9 +25,12 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import cv2
+import numpy as np
 
 from pefforza.agent.difficulty import (
     DEFAULT_DIFFICULTY,
@@ -27,8 +38,10 @@ from pefforza.agent.difficulty import (
     build_opponent,
     describe_difficulties,
 )
+from pefforza.agent.evaluate import Agent
 from pefforza.constants import DEFAULT_MODEL_PATH
 from pefforza.rules import (
+    Board,
     available_columns,
     check_winner,
     player_to_move,
@@ -38,6 +51,121 @@ from pefforza.vision.board_detector import BoardDetector
 from pefforza.vision.validation import BoardStateValidator
 
 logger = logging.getLogger(__name__)
+
+Grid = Board
+AnalysisKind = Literal["rejected", "resynced", "game_over", "wait", "full", "move"]
+
+DEFAULT_STABLE_FRAMES = 8
+
+
+@dataclass(frozen=True)
+class Analysis:
+    """Outcome of analyzing one board reading.
+
+    ``display_col`` is set only for ``kind == "move"`` and is expressed in
+    the coordinate system of the grid that was analyzed (the mirrored display
+    frame); translate it with :meth:`BoardDetector.physical_col` before
+    telling a human which physical column to play.
+    """
+
+    kind: AnalysisKind
+    message: str
+    display_col: int | None = None
+    winner: int = 0
+
+
+class PhysicalAssistant:
+    """Turn validated board readings (vision view: 1 = red, 2 = yellow) into advice.
+
+    Pure logic - no camera, window, or audio - so the whole decision path is
+    unit-testable with synthetic grids.
+    """
+
+    def __init__(
+        self,
+        agent: Agent,
+        *,
+        ai_is_red: bool,
+        validator: BoardStateValidator | None = None,
+    ) -> None:
+        self.agent = agent
+        self.ai_is_red = ai_is_red
+        self.validator = validator if validator is not None else BoardStateValidator()
+
+    @property
+    def ai_token(self) -> int:
+        return 1 if self.ai_is_red else 2
+
+    def reset(self) -> None:
+        self.validator.reset()
+
+    def analyze(self, grid: Grid) -> Analysis:
+        check = self.validator.accept(grid)
+        if not check.ok:
+            # A misread (hand occlusion, mid-drop token, glare) must never
+            # reach the AI as a real position.
+            return Analysis("rejected", f"Board rejected: {check.reason}.")
+        if check.reason is not None:
+            # Informational accept, e.g. a new game after the board was cleared.
+            return Analysis("resynced", f"Board accepted: {check.reason}.")
+
+        winner = check_winner(grid)
+        if winner != 0:
+            name = "RED" if winner == 1 else "YELLOW"
+            return Analysis("game_over", f"{name} WINS!", winner=winner)
+
+        # The validator already proved the counts are turn-compatible.
+        if player_to_move(grid) != self.ai_token:
+            return Analysis("wait", "Opponent's turn - waiting for their move.")
+
+        # Agents always see themselves as player 1.
+        agent_view = grid.copy() if self.ai_is_red else swap_perspective(grid)
+        valid = available_columns(agent_view)
+        if not valid:
+            return Analysis("full", "Board is full.")
+        col = int(self.agent(agent_view, 1, valid))
+        if col not in valid:
+            col = valid[0]
+        return Analysis("move", "AI move ready.", display_col=col)
+
+
+class StableGridFilter:
+    """Debounce a stream of per-frame grid readings for ``--watch`` mode.
+
+    :meth:`update` returns a grid only when the same reading has been seen
+    for ``frames`` consecutive frames *and* differs from the last grid it
+    returned, so each settled board state is analyzed exactly once.
+    """
+
+    def __init__(self, frames: int = DEFAULT_STABLE_FRAMES) -> None:
+        if frames < 1:
+            raise ValueError("frames must be >= 1")
+        self.frames = frames
+        self._candidate: Grid | None = None
+        self._streak = 0
+        self._emitted: Grid | None = None
+
+    def reset(self) -> None:
+        self._candidate = None
+        self._streak = 0
+        self._emitted = None
+
+    def update(self, grid: Grid | None) -> Grid | None:
+        if grid is None:
+            self._candidate = None
+            self._streak = 0
+            return None
+        if self._candidate is not None and np.array_equal(grid, self._candidate):
+            self._streak += 1
+        else:
+            self._candidate = grid.copy()
+            self._streak = 1
+        if self._streak < self.frames:
+            return None
+        if self._emitted is not None and np.array_equal(self._candidate, self._emitted):
+            return None
+        self._emitted = self._candidate.copy()
+        return self._emitted.copy()
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -65,8 +193,31 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Skip the interactive prompt by setting the AI color upfront.",
     )
+    p.add_argument(
+        "--watch",
+        action="store_true",
+        help="Analyze continuously instead of on SPACE (debounced, see --stable-frames).",
+    )
+    p.add_argument(
+        "--stable-frames",
+        type=int,
+        default=DEFAULT_STABLE_FRAMES,
+        help=(
+            "--watch only: identical consecutive readings required before a board "
+            f"is analyzed (default: {DEFAULT_STABLE_FRAMES})."
+        ),
+    )
+    p.add_argument(
+        "--voice",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Announce recommendations with text-to-speech.",
+    )
     p.add_argument("--seed", type=int, default=None)
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.stable_frames < 1:
+        p.error("--stable-frames must be >= 1")
+    return args
 
 
 def _prompt_ai_color() -> bool:
@@ -80,6 +231,22 @@ def _prompt_ai_color() -> bool:
         print("Invalid choice.")
 
 
+def _make_voice(enabled: bool):  # -> VoiceEngine | None
+    if not enabled:
+        return None
+    try:
+        from pefforza.interaction.voice import VoiceEngine
+
+        return VoiceEngine()
+    except Exception as exc:  # voice is optional and must never stop the game
+        logger.warning("Voice disabled: %s", exc)
+        return None
+
+
+def _put_text(frame, text: str, y: int, scale: float, color: tuple[int, int, int], width: int):
+    cv2.putText(frame, text, (10, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, width)
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = _parse_args(argv)
@@ -89,24 +256,62 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Could not open webcam at index %d.", args.camera)
         return 2
 
+    voice = _make_voice(args.voice)
     try:
         ai_is_red = (args.ai_color == "red") if args.ai_color else _prompt_ai_color()
         ai_color_name = "RED" if ai_is_red else "YELLOW"
         print(f"AI will play as {ai_color_name} at difficulty: {args.difficulty}")
 
-        agent = build_opponent(args.difficulty, seed=args.seed, model_path=args.model)
-
+        assistant = PhysicalAssistant(
+            build_opponent(args.difficulty, seed=args.seed, model_path=args.model),
+            ai_is_red=ai_is_red,
+        )
+        stable = StableGridFilter(args.stable_frames)
         detector = BoardDetector()
-        validator = BoardStateValidator()
+
+        if voice is not None:
+            voice.speak("Please switch to the camera window and calibrate the board.")
         print("\nStarting calibration: click the 4 corners of the board. Press 'q' to abort.")
         print("Order doesn't matter - we auto-detect TL/TR/BR/BL.")
         if not detector.calibrate(cap, flip=True):
             logger.error("Calibration failed or cancelled.")
             return 1
+        if voice is not None:
+            voice.speak("Calibration complete. Let's play.")
 
-        print("Controls: [SPACE] analyze | [r] reset board tracking | [q] quit")
+        trigger = "watching" if args.watch else "SPACE to analyze"
+        print(f"Controls: {'' if args.watch else '[SPACE] analyze | '}[r] reset | [q] quit")
         last_recommendation: int | None = None
         game_over_message: str | None = None
+
+        def report(result: Analysis) -> None:
+            nonlocal last_recommendation, game_over_message
+            if result.kind == "rejected":
+                print(result.message)
+                if not args.watch:
+                    print("Let the board settle and press SPACE again, or press 'r' to resync.")
+                return
+            last_recommendation = None
+            game_over_message = None
+            if result.kind == "game_over":
+                game_over_message = result.message
+                print(f"Game over: {result.message}")
+                if voice is not None:
+                    voice.speak(result.message.capitalize())
+            elif result.kind == "move" and result.display_col is not None:
+                # The arrow is drawn in display space (the mirrored frame the
+                # grid was classified in); the human counts columns on the
+                # physical board, whose left-right order is the opposite.
+                last_recommendation = result.display_col
+                physical_col = detector.physical_col(result.display_col)
+                print(
+                    f"AI ({ai_color_name}, {args.difficulty}) "
+                    f"recommends physical column {physical_col + 1}"
+                )
+                if voice is not None:
+                    voice.play_move_commentary(physical_col)
+            else:
+                print(result.message)
 
         while True:
             ret, frame = cap.read()
@@ -119,78 +324,30 @@ def main(argv: list[str] | None = None) -> int:
             if key == ord("q"):
                 break
             if key == ord("r"):
-                validator.reset()
+                assistant.reset()
+                stable.reset()
                 last_recommendation = None
                 game_over_message = None
                 print("Board tracking reset: the next analyzed state starts a new history.")
-            if key == ord(" "):
+
+            if args.watch:
+                grid, _ = detector.process_frame(frame)
+                settled = stable.update(grid)
+                if settled is not None:
+                    report(assistant.analyze(settled))
+            elif key == ord(" "):
                 grid, _ = detector.process_frame(frame)
                 if grid is None:
                     print("Could not process board; check calibration.")
-                    continue
-                check = validator.accept(grid)
-                if not check.ok:
-                    # A misread (hand occlusion, mid-drop token, glare) must
-                    # never reach the AI as a real position.
-                    print(f"Board rejected: {check.reason}.")
-                    print("Let the board settle and press SPACE again, or press 'r' to resync.")
-                elif check.reason is not None:
-                    # Informational accept, e.g. new game detected after the
-                    # board was cleared. Press SPACE again to get a move.
-                    print(f"Board accepted: {check.reason}.")
-                    last_recommendation = None
-                    game_over_message = None
                 else:
                     print("\nDetected board:")
                     print(grid)
-                    winner = check_winner(grid)
-                    if winner != 0:
-                        game_over_message = "RED WINS!" if winner == 1 else "YELLOW WINS!"
-                        last_recommendation = None
-                        print(f"Game over: {game_over_message}")
-                    else:
-                        game_over_message = None
-                        # Only consult the AI on its own turn. Vision view is
-                        # 1 = red / 2 = yellow; the validator already proved
-                        # the counts are turn-compatible.
-                        turn = player_to_move(grid)
-                        ai_token = 1 if ai_is_red else 2
-                        if turn != ai_token:
-                            print(
-                                "Board accepted. Opponent's turn - "
-                                "press SPACE after their move lands."
-                            )
-                            last_recommendation = None
-                        else:
-                            # Translate vision view (1=Red, 2=Yellow) into agent
-                            # view (1 = "self"). If AI plays Yellow, swap.
-                            agent_view = grid.copy() if ai_is_red else swap_perspective(grid)
-                            valid = available_columns(agent_view)
-                            if not valid:
-                                print("Board is full.")
-                            else:
-                                col = agent(agent_view, 1, valid)
-                                if col not in valid:
-                                    col = valid[0]
-                                # Two coordinate systems are involved: the arrow
-                                # must be drawn on the flipped display frame (the
-                                # same space the grid was classified in), while
-                                # the human plays on the physical board, whose
-                                # left-to-right order is opposite to the mirrored
-                                # display's.
-                                display_col = col
-                                physical_col = detector.physical_col(display_col)
-                                last_recommendation = display_col
-                                print(
-                                    f"AI ({ai_color_name}, {args.difficulty}) "
-                                    f"recommends physical column {physical_col + 1}"
-                                )
+                    report(assistant.analyze(grid))
 
-            cv2.putText(
+            _put_text(
                 display,
-                f"AI: {ai_color_name} ({args.difficulty}) | SPACE to analyze",
-                (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
+                f"AI: {ai_color_name} ({args.difficulty}) | {trigger}",
+                30,
                 0.7,
                 (0, 255, 0),
                 2,
@@ -200,30 +357,18 @@ def main(argv: list[str] | None = None) -> int:
             if last_recommendation is not None:
                 detector.draw_move(display, last_recommendation)
                 recommended = detector.physical_col(last_recommendation) + 1
-                cv2.putText(
-                    display,
-                    f"AI Recommends: physical column {recommended}",
-                    (10, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    (0, 0, 255),
-                    2,
+                _put_text(
+                    display, f"AI Recommends: physical column {recommended}", 60, 1, (0, 0, 255), 2
                 )
             if game_over_message:
-                cv2.putText(
-                    display,
-                    game_over_message,
-                    (10, 100),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.5,
-                    (255, 0, 255),
-                    3,
-                )
+                _put_text(display, game_over_message, 100, 1.5, (255, 0, 255), 3)
 
             cv2.imshow("Connect 4 - AI Assistant", display)
     finally:
         cap.release()
         cv2.destroyAllWindows()
+        if voice is not None:
+            voice.shutdown()
     return 0
 
 

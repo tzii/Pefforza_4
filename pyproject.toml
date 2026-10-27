@@ -46,6 +46,7 @@ dev = [
 [project.scripts]
 pefforza-cli = "pefforza.cli.play_cli:main"
 pefforza-gui = "pefforza.cli.play_gui:main"
+pefforza-physical = "pefforza.cli.play_physical:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
