@@ -179,7 +179,10 @@ def build_opponent(
 
 def describe_difficulties() -> str:
     rows = [f"  {d.name:<11} {d.description}" for d in DIFFICULTIES.values()]
-    rows.append("  neural      Wraps the bundled PPO checkpoint. Strength depends on training.")
+    rows.append(
+        "  neural      CNN distilled from exact solver labels (bundled checkpoint); "
+        "plays from the network alone, no search."
+    )
     return "\n".join(rows)
 
 

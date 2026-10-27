@@ -86,13 +86,37 @@ def heuristic_agent(seed: int | None = None) -> Agent:
     return select
 
 
+def _action_probabilities(model: object, obs: Board) -> list[float] | None:
+    """Policy probabilities for every column, or None if unavailable."""
+    try:
+        import torch
+
+        policy = model.policy  # type: ignore[attr-defined]
+        obs_tensor, _ = policy.obs_to_tensor(obs)
+        with torch.no_grad():
+            probs = policy.get_distribution(obs_tensor).distribution.probs[0]
+        return [float(p) for p in probs.cpu()]
+    except Exception:  # not an SB3 actor-critic policy: use predict() instead
+        return None
+
+
 def model_agent(model: object, deterministic: bool = True) -> Agent:
-    """Wrap a Stable-Baselines3 model. Translates board to the model's perspective."""
+    """Wrap a Stable-Baselines3 model. Translates board to the model's perspective.
+
+    Deterministic play takes the most probable *legal* column (illegal
+    columns are masked out of the policy distribution); a policy without
+    accessible probabilities falls back to ``predict`` and, if that picks a
+    full column, to the first legal one.
+    """
 
     def select(board: Board, my_id: int, valid: list[int]) -> int:
         # The model was trained as player 1; if it's actually playing as 2 in
         # this game, swap so it always sees "1 = self, 2 = opponent".
         obs = board if my_id == 1 else swap_perspective(board)
+        if deterministic:
+            probs = _action_probabilities(model, obs)
+            if probs is not None:
+                return max(valid, key=lambda c: probs[c])
         action, _ = model.predict(obs, deterministic=deterministic)  # type: ignore[attr-defined]
         action = int(action)
         if action not in valid:

@@ -20,7 +20,7 @@ Difficulty tiers (same as ``play_gui.py``):
   hard        Bitboard alpha-beta search, depth 8. Default.
   impossible  Perfect play: exact opening book, then the exact solver (~3s);
               tactically-safe fallback only for unprovable off-book positions.
-  neural      Wraps the bundled PPO checkpoint.
+  neural      CNN distilled from exact solver labels; no search.
 """
 
 from __future__ import annotations
