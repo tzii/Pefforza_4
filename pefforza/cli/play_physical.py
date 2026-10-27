@@ -9,14 +9,17 @@ Two capture modes share one analysis path:
   (hands and falling tokens never reach the AI). New recommendations are
   announced once, by voice when ``--voice`` is on.
 
-Press 'r' to reset board tracking and 'q' to quit.
+Calibration locates the board automatically (press ENTER to accept the
+outline, or click the 4 corners), and every validated reading re-fits the
+color thresholds to the current lighting. Press 'r' to reset board tracking
+and 'q' to quit.
 
 Difficulty tiers (same as ``play_gui.py``):
   easy        Random opponent.
   medium      1-ply heuristic (win/block/center).
   hard        Bitboard alpha-beta search, depth 8. Default.
-  impossible  Exact solver, ~3s budget: proven-optimal once provable, else a
-              tactically-safe fallback (never gifts an immediate win).
+  impossible  Perfect play: exact opening book, then the exact solver (~3s);
+              tactically-safe fallback only for unprovable off-book positions.
   neural      Wraps the bundled PPO checkpoint.
 """
 
@@ -271,8 +274,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if voice is not None:
             voice.speak("Please switch to the camera window and calibrate the board.")
-        print("\nStarting calibration: click the 4 corners of the board. Press 'q' to abort.")
-        print("Order doesn't matter - we auto-detect TL/TR/BR/BL.")
+        print("\nStarting calibration: the board is located automatically - press ENTER")
+        print("once it is outlined, or click its 4 corners (any order). 'q' aborts.")
         if not detector.calibrate(cap, flip=True):
             logger.error("Calibration failed or cancelled.")
             return 1
@@ -283,6 +286,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Controls: {'' if args.watch else '[SPACE] analyze | '}[r] reset | [q] quit")
         last_recommendation: int | None = None
         game_over_message: str | None = None
+
+        def analyze(grid: Grid, warped) -> None:
+            result = assistant.analyze(grid)
+            # A validated reading is ground truth for the current lighting:
+            # re-fit the color thresholds to it (committed only if the new
+            # profile reproduces this exact reading).
+            if (
+                result.kind != "rejected"
+                and warped is not None
+                and detector.adapt_colors(warped, grid)
+            ):
+                logger.debug("Color thresholds adapted to the current lighting.")
+            report(result)
 
         def report(result: Analysis) -> None:
             nonlocal last_recommendation, game_over_message
@@ -331,18 +347,18 @@ def main(argv: list[str] | None = None) -> int:
                 print("Board tracking reset: the next analyzed state starts a new history.")
 
             if args.watch:
-                grid, _ = detector.process_frame(frame)
+                grid, warped = detector.process_frame(frame)
                 settled = stable.update(grid)
                 if settled is not None:
-                    report(assistant.analyze(settled))
+                    analyze(settled, warped)
             elif key == ord(" "):
-                grid, _ = detector.process_frame(frame)
+                grid, warped = detector.process_frame(frame)
                 if grid is None:
                     print("Could not process board; check calibration.")
                 else:
                     print("\nDetected board:")
                     print(grid)
-                    report(assistant.analyze(grid))
+                    analyze(grid, warped)
 
             _put_text(
                 display,

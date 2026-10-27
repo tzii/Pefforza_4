@@ -185,6 +185,7 @@ class _FakeDetector:
     """Stands in for BoardDetector: replays scripted grid readings."""
 
     readings: list[np.ndarray | None] = []
+    adapted: list[np.ndarray] = []
 
     def __init__(self) -> None:
         self.matrix = np.eye(3)
@@ -196,7 +197,11 @@ class _FakeDetector:
     def process_frame(self, frame):
         grid = self.readings.pop(0) if self.readings else self._last
         self._last = grid
-        return grid, None
+        return grid, (None if grid is None else np.zeros((4, 4, 3), np.uint8))
+
+    def adapt_colors(self, board_img, grid) -> bool:
+        self.adapted.append(grid.copy())
+        return True
 
     def physical_col(self, display_col: int) -> int:
         return COLS - 1 - display_col
@@ -219,6 +224,7 @@ def _run_main(monkeypatch, argv, *, readings, keys, frames):
     monkeypatch.setattr(play_physical.cv2, "destroyAllWindows", lambda: None)
     _FakeDetector.readings = list(readings)
     _FakeDetector._last = None
+    _FakeDetector.adapted = []
     monkeypatch.setattr(play_physical, "BoardDetector", _FakeDetector)
     monkeypatch.setenv("PEFFORZA_TTS_BACKEND", "null")
     rc = play_physical.main(argv)
@@ -256,6 +262,9 @@ def test_main_watch_mode_debounces_and_announces(monkeypatch, capsys):
     assert rc == 0
     assert "rejected" not in out
     assert out.count("recommends physical column") == 1
+    # Only the validated, settled reading feeds color adaptation.
+    assert len(_FakeDetector.adapted) == 1
+    assert np.array_equal(_FakeDetector.adapted[0], _grid((3, 1)))
 
 
 def test_main_reports_game_over(monkeypatch, capsys):

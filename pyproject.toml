@@ -76,7 +76,7 @@ branch = false
 
 [tool.coverage.report]
 # Ratchet: raise this when coverage improves, never lower it to make CI pass.
-fail_under = 80
+fail_under = 85
 show_missing = true
 skip_covered = true
 

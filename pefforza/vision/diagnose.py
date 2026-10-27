@@ -3,6 +3,8 @@
 Run after calibrating the board to see exactly what the detector sees on
 your webcam in real time. Each detected cell is annotated with the inferred
 token (X = red, O = yellow, "." = empty) and a confidence value 0..1.
+Calibration finds the board automatically (ENTER accepts the outline;
+clicking the 4 corners overrides it).
 
 Usage:
 
@@ -100,7 +102,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         detector = BoardDetector()
-        logger.info("Calibrate by clicking the 4 corners (TL, TR, BR, BL). 'q' aborts.")
+        logger.info(
+            "Calibrate: ENTER accepts the detected board, or click its 4 corners. 'q' aborts."
+        )
         if not detector.calibrate(cap, flip=args.flip):
             logger.error("Calibration cancelled.")
             return 1
