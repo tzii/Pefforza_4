@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from pefforza.agent.evaluate import (
     Agent,
@@ -17,7 +18,9 @@ from pefforza.agent.minimax import tactical_safety_net
 from pefforza.agent.search import (
     BitboardSearchAgent,
     BitPosition,
+    OpeningBook,
     PerfectSolver,
+    default_book,
 )
 from pefforza.constants import DEFAULT_MODEL_PATH
 from pefforza.rules import Board
@@ -66,23 +69,37 @@ def bitboard_agent(depth: int = HARD_BITBOARD_DEPTH, seed: int | None = None) ->
 def exact_agent(
     time_budget: float = IMPOSSIBLE_TIME_BUDGET,
     seed: int | None = None,
+    book: OpeningBook | None | Literal["default"] = "default",
 ) -> Agent:
-    """Exact-solver agent - the ``impossible`` backend.
+    """Exact agent - the ``impossible`` backend.
 
-    Weak-solves the position under a real time budget: the move is proven
-    optimal whenever the solver completes (typical from the midgame on).
-    When the proof does not fit, the move is a deterministic tactically-safe
-    fallback - it avoids an immediate loss whenever an avoiding move exists,
-    which is a one-ply guarantee, not a game-theoretic one. Shallow positions
-    (below ``EXACT_SOLVE_MIN_PLIES``) are only probed with a small budget
-    instead of spending the full one. The solver and its transposition table
+    Opening: the bundled exact opening book (``scripts/build_opening_book.py``)
+    answers every position the AI can reach up to its ``max_ply`` with a
+    strongly optimal move - fastest win, slowest loss, else a draw.
+
+    Beyond the book the exact solver weak-solves the position under a real
+    time budget: the move is proven value-preserving (a won game stays won,
+    a drawn one drawn) whenever the solver completes - on the oracle set's
+    game lines that is every position, inside the budget
+    (``python -m pefforza.agent.evaluate --oracle --difficulty impossible``).
+    When a proof does not fit - e.g. an off-book shallow position set up on
+    a physical board - the move is a deterministic tactically-safe fallback
+    that avoids an immediate loss whenever possible, a one-ply guarantee
+    rather than a game-theoretic one.
+    Shallow off-book positions (below ``EXACT_SOLVE_MIN_PLIES``) are only
+    probed with a small budget. The solver and its transposition table
     persist across the whole game, so later moves reuse earlier proofs.
     Deterministic; ``seed`` is accepted for registry uniformity and ignored.
     """
     solver = PerfectSolver(table_size_bits=21)
+    opening = default_book() if book == "default" else book
 
     def select(board: Board, my_id: int, valid: list[int]) -> int:
         position = BitPosition.from_board(board, to_move=my_id)
+        if opening is not None:
+            entry = opening.lookup(position)
+            if entry is not None and entry.move in valid:
+                return entry.move
         budget = time_budget if position.moves >= EXACT_SOLVE_MIN_PLIES else OPENING_PROBE_BUDGET
         move = solver.solve_root(position, time_budget=budget).move
         return move if move in valid else valid[0]
@@ -114,9 +131,9 @@ DIFFICULTIES: dict[str, Difficulty] = {
     "impossible": Difficulty(
         "impossible",
         (
-            f"Exact bitboard solver, ~{IMPOSSIBLE_TIME_BUDGET:.0f}s budget: proven-optimal "
-            "moves whenever the proof fits; tactically-safe fallback (never gifts "
-            "an immediate win) when it does not."
+            "Perfect play: exact opening book, then the exact solver "
+            f"(~{IMPOSSIBLE_TIME_BUDGET:.0f}s budget) proves every move; a "
+            "tactically-safe fallback only for off-book positions it cannot prove."
         ),
         exact_agent,
     ),

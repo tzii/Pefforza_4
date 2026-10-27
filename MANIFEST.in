@@ -1,3 +1,5 @@
-# Ensure the bundled PPO checkpoint ships in the sdist as well as the wheel;
-# the wheel path is covered by [tool.setuptools.package-data] in pyproject.toml.
+# Ensure the bundled PPO checkpoint, opening book and oracle set ship in the
+# sdist as well as the wheel; the wheel path is covered by
+# [tool.setuptools.package-data] in pyproject.toml.
 include pefforza/agent/models/notebook_model.zip
+recursive-include pefforza/agent/data *

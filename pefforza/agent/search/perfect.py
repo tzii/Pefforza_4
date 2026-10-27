@@ -6,11 +6,12 @@ threat losses, and exclusion of moves that open an opponent win), the
 transposition table is symmetry-canonical and fixed-size, and move ordering
 prefers the transposition move and the moves creating the most winning
 spots. :meth:`PerfectSolver.solve_root` turns the solver into an anytime
-player - proven-optimal moves whenever a proof fits the time budget, with a
-deterministic tactically-safe fallback (never gifts an immediate win) when
-it does not. An exact opening book / native backend remains the known next
-step for proven play from move one; see docs/search_engine.md for the
-benchmark decision.
+player - proven-optimal moves whenever a proof fits the time budget (root
+moves are proven in interleaved rounds so a cheap winning proof is never
+starved by expensive refutations), with a deterministic tactically-safe
+fallback (never gifts an immediate win) when it does not. The opening, which
+pure Python cannot prove interactively, is covered by the exact opening book
+in :mod:`pefforza.agent.search.book`; see docs/search_engine.md.
 """
 
 from __future__ import annotations
@@ -34,6 +35,16 @@ from .bitboard import (
 
 class PerfectSearchTimeoutError(RuntimeError):
     pass
+
+
+class _NodeLimitReachedError(Exception):
+    """Internal: a root move used up its allowance for this round."""
+
+
+# Initial per-move node allowance of the interleaved root search; it grows
+# 4x per round. Small enough that easy proofs surface first, large enough
+# that the bounded re-search overhead stays negligible.
+ROOT_NODE_ALLOWANCE = 2_000
 
 
 class ExactBound(Enum):
@@ -153,6 +164,7 @@ class PerfectSolver:
         self._table = _TranspositionTable(table_size_bits)
         self._nodes = 0
         self._deadline: float | None = None
+        self._node_limit: int | None = None
 
     def clear_cache(self) -> None:
         self._table.clear()
@@ -265,43 +277,58 @@ class PerfectSolver:
 
         ordered = self._ordered_columns(position, safe, self._root_hint(position))
         self._nodes = 0
-        proven_draw: int | None = None
+        proven_draws: set[int] = set()
         proven_losing: set[int] = set()
+        unresolved = list(ordered)
         timed_out = False
         self._deadline = start + time_budget
+        allowance = ROOT_NODE_ALLOWANCE
         try:
-            for col in ordered:
-                try:
-                    self._check_deadline()
-                    value = self._negamax(position.played(col), -1, 1)
-                except PerfectSearchTimeoutError:
-                    timed_out = True
-                    break
-                outcome = (value > 0) - (value < 0)
-                if outcome < 0:  # opponent, to move in the child, loses
-                    return RootResult(
-                        col, "proven_win", True, self._nodes, time.perf_counter() - start
-                    )
-                if outcome == 0:
-                    if proven_draw is None:
-                        proven_draw = col
-                else:
-                    # The opponent wins from the child: this root move is
-                    # refuted and must never be the timeout fallback.
-                    proven_losing.add(col)
+            # Interleaved proofs: each round gives every unresolved root move
+            # a node allowance that grows geometrically. A cheap proof of a
+            # win is then found before expensive proofs that the *other*
+            # moves lose - in sequential order a winning move placed last
+            # could starve behind them. Aborted searches store nothing in
+            # the table, and finished subtrees are reused from it, so the
+            # repeated work is bounded by the geometric growth.
+            while unresolved and not timed_out:
+                for col in list(unresolved):
+                    self._node_limit = self._nodes + allowance
+                    try:
+                        value = self._negamax(position.played(col), -1, 1)
+                    except _NodeLimitReachedError:
+                        continue
+                    except PerfectSearchTimeoutError:
+                        timed_out = True
+                        break
+                    finally:
+                        self._node_limit = None
+                    unresolved.remove(col)
+                    outcome = (value > 0) - (value < 0)
+                    if outcome < 0:  # opponent, to move in the child, loses
+                        return RootResult(
+                            col, "proven_win", True, self._nodes, time.perf_counter() - start
+                        )
+                    if outcome == 0:
+                        proven_draws.add(col)
+                    else:
+                        # The opponent wins from the child: this root move is
+                        # refuted and must never be the timeout fallback.
+                        proven_losing.add(col)
+                allowance *= 4
         finally:
             self._deadline = None
 
         elapsed = time.perf_counter() - start
+        if proven_draws:
+            # A proven draw beats any unproven move, even on timeout; among
+            # several, the deterministic root order decides.
+            draw = next(col for col in ordered if col in proven_draws)
+            return RootResult(draw, "proven_draw", True, self._nodes, elapsed)
         if not timed_out:
-            if proven_draw is not None:
-                return RootResult(proven_draw, "proven_draw", True, self._nodes, elapsed)
             return RootResult(ordered[0], "all_lost", True, self._nodes, elapsed)
-        if proven_draw is not None:
-            # A proven draw beats any unproven move, even on timeout.
-            return RootResult(proven_draw, "proven_draw", True, self._nodes, elapsed)
-        unresolved = [col for col in ordered if col not in proven_losing]
-        move = unresolved[0] if unresolved else ordered[0]
+        candidates = [col for col in ordered if col not in proven_losing]
+        move = candidates[0] if candidates else ordered[0]
         return RootResult(move, "fallback", False, self._nodes, elapsed)
 
     def _root_hint(self, position: BitPosition) -> int | None:
@@ -384,6 +411,8 @@ class PerfectSolver:
         # A per-node check is acceptable in this pure-Python first version and
         # makes the public time budget a real deadline.
         self._check_deadline()
+        if self._node_limit is not None and self._nodes > self._node_limit:
+            raise _NodeLimitReachedError
 
         if position.winning_moves_mask():
             return (TOTAL_CELLS + 1 - position.moves) // 2

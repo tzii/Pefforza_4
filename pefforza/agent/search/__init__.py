@@ -2,6 +2,7 @@
 
 from .alphabeta import BitboardSearchAgent, BitSearchResult
 from .bitboard import BitPosition
+from .book import BookEntry, OpeningBook, default_book
 from .perfect import (
     PerfectResult,
     PerfectSearchTimeoutError,
@@ -12,11 +13,14 @@ from .perfect import (
 
 __all__ = [
     "BitPosition",
+    "BookEntry",
+    "OpeningBook",
     "BitSearchResult",
     "BitboardSearchAgent",
     "PerfectResult",
     "PerfectSearchTimeoutError",
     "PerfectSolver",
     "RootResult",
+    "default_book",
     "opening_fallback_move",
 ]

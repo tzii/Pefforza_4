@@ -1,7 +1,9 @@
 """Headless evaluation harness.
 
-Run a trained PPO checkpoint against canned opponents and report win / loss /
-draw rates. Useful for answering "is my newer checkpoint actually better?"
+Run a trained PPO checkpoint (or any difficulty tier) against canned
+opponents and report win / loss / draw rates, or grade every move against the
+exact oracle set (:mod:`pefforza.agent.oracle`). Useful for answering "is my
+newer checkpoint actually better?" or "is ``impossible`` really perfect?"
 without a webcam, GUI, or audio device.
 
 Usage:
@@ -194,10 +196,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"PPO checkpoint to evaluate (default: {DEFAULT_MODEL_PATH}).",
     )
     p.add_argument(
+        "--difficulty",
+        default=None,
+        help="Evaluate a difficulty tier (easy/medium/hard/impossible/neural) instead of --model.",
+    )
+    p.add_argument(
         "--opponent",
         choices=OPPONENT_CHOICES,
         default="heuristic",
-        help="Baseline to play against. 'self' = same checkpoint, "
+        help="Baseline to play against. 'self' = the evaluated agent itself, "
         "'model' = a second checkpoint via --opponent-model.",
     )
     p.add_argument(
@@ -211,10 +218,21 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--games", type=int, default=100)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--oracle",
+        action="store_true",
+        help="Grade every move against the exact oracle set instead of playing matches.",
+    )
+    p.add_argument(
+        "--oracle-source",
+        choices=("all", "line", "random"),
+        default="all",
+        help="--oracle only: restrict to one population of the set (default: all).",
+    )
     return p.parse_args(argv)
 
 
-def _build_opponent(args: argparse.Namespace, primary_model: object) -> Agent | None:
+def _build_opponent(args: argparse.Namespace, primary: Agent) -> Agent | None:
     if args.opponent == "random":
         return random_agent(seed=args.seed)
     if args.opponent == "heuristic":
@@ -224,7 +242,7 @@ def _build_opponent(args: argparse.Namespace, primary_model: object) -> Agent | 
 
         return minimax_agent(depth=args.minimax_depth, seed=args.seed)
     if args.opponent == "self":
-        return model_agent(primary_model)
+        return primary
     if args.opponent == "model":
         if args.opponent_model is None or not args.opponent_model.exists():
             logger.error("--opponent=model requires --opponent-model pointing to a real file.")
@@ -235,24 +253,50 @@ def _build_opponent(args: argparse.Namespace, primary_model: object) -> Agent | 
     return None
 
 
+def _build_agent(args: argparse.Namespace) -> tuple[Agent, str] | None:
+    if args.difficulty is not None:
+        from pefforza.agent.difficulty import DIFFICULTY_NAMES, build_opponent
+
+        if args.difficulty not in DIFFICULTY_NAMES:
+            logger.error(
+                "Unknown difficulty %r. Choose from %s.", args.difficulty, DIFFICULTY_NAMES
+            )
+            return None
+        agent = build_opponent(args.difficulty, seed=args.seed, model_path=args.model)
+        return agent, args.difficulty
+
+    if not args.model.exists():
+        logger.error("Model not found: %s", args.model)
+        return None
+    from stable_baselines3 import PPO  # local import; optional dep
+
+    return model_agent(PPO.load(str(args.model))), args.model.name
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = _parse_args(argv)
 
-    if not args.model.exists():
-        logger.error("Model not found: %s", args.model)
+    built = _build_agent(args)
+    if built is None:
         return 2
+    agent, name = built
 
-    from stable_baselines3 import PPO  # local import; optional dep
+    if args.oracle:
+        from pefforza.agent.oracle import load_oracle_positions, oracle_evaluate
 
-    model = PPO.load(str(args.model))
-    agent = model_agent(model)
-    opp = _build_opponent(args, model)
+        positions = load_oracle_positions()
+        if args.oracle_source != "all":
+            positions = [p for p in positions if p.source == args.oracle_source]
+        print(f"Grading {name} on {len(positions)} oracle positions ({args.oracle_source})...")
+        print(oracle_evaluate(agent, positions))
+        return 0
+
+    opp = _build_opponent(args, agent)
     if opp is None:
         return 2
-
     label = args.opponent if args.opponent != "model" else f"model:{args.opponent_model.name}"
-    print(f"Evaluating {args.model.name} vs {label} over {args.games} games (seed={args.seed})...")
+    print(f"Evaluating {name} vs {label} over {args.games} games (seed={args.seed})...")
     result = evaluate(agent, opp, games=args.games, seed=args.seed)
     print(result)
     return 0

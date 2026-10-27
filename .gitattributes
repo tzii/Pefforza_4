@@ -6,4 +6,5 @@
 *.zip binary
 *.pptx binary
 *.docx binary
+*.xz binary
 *.ipynb text

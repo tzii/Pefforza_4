@@ -110,3 +110,5 @@ jobs:
           .venv-dist-test/bin/pefforza-gui --help
           .venv-dist-test/bin/pefforza-physical --help
           .venv-dist-test/bin/python -c "from pefforza.constants import DEFAULT_MODEL_PATH; assert DEFAULT_MODEL_PATH.is_file(), DEFAULT_MODEL_PATH"
+          .venv-dist-test/bin/python -c "from pefforza.agent.search import default_book; book = default_book(); assert book is not None and len(book) > 100000"
+          .venv-dist-test/bin/python -m pefforza.agent.evaluate --oracle --difficulty medium --oracle-source random

@@ -53,11 +53,11 @@ where = ["."]
 include = ["pefforza*"]
 exclude = ["tests*", "notebooks*", ".kilo*", ".venv*"]
 
-# Ship the bundled PPO checkpoint so the `neural` difficulty tier works from a
+# Ship the bundled PPO checkpoint, opening book and oracle set so the `neural` difficulty tier works from a
 # wheel install, not just from a source checkout. Verified by the wheel smoke
 # test job in CI.
 [tool.setuptools.package-data]
-pefforza = ["agent/models/*.zip"]
+pefforza = ["agent/models/*.zip", "agent/data/*"]
 
 # ----------------- Tooling -----------------
 
