@@ -184,6 +184,34 @@ def animate_drop(
     pygame.display.update()
 
 
+def watchdog_diagnostic(pre_board: np.ndarray, col: int, difficulty: str) -> str | None:
+    """Explain an AI move that ignored a blockable threat, or return None.
+
+    ``pre_board`` is the env view before the AI (player 2) moved. If the
+    human (player 1) had an immediate win, the AI must either block it or
+    take its own immediate win; anything else produces a copy-pasteable
+    diagnostic for ``watchdog.log``.
+    """
+    valid = available_columns(pre_board)
+    human_immediate_win = find_immediate_win(pre_board, 1, valid)
+    if human_immediate_win is None or col == human_immediate_win:
+        return None
+    ai_immediate_win = find_immediate_win(pre_board, 2, valid)
+    if ai_immediate_win is not None and col == ai_immediate_win:
+        return None
+    diag = "\n".join(
+        "  " + " ".join("X" if v == 1 else "O" if v == 2 else "." for v in pre_board[r])
+        for r in range(ROWS)
+    )
+    return (
+        "WATCHDOG: AI ignored a blockable threat.\n"
+        f"  Difficulty: {difficulty}\n"
+        f"  Human could win at column {human_immediate_win}, AI played {col}.\n"
+        f"  AI's own immediate win was at: {ai_immediate_win}\n"
+        f"Board before AI move:\n{diag}\n  " + " ".join(str(c) for c in range(COLS))
+    )
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Play Connect 4 with a Pygame GUI.",
@@ -281,12 +309,7 @@ def main(argv: list[str] | None = None) -> int:
                 pygame.event.pump()
                 valid = available_columns(env.board)
                 if valid:
-                    # Watchdog: snapshot threats before the AI moves so we can
-                    # detect (and report) any failure to block an obvious win.
                     pre_board = env.board.copy()
-                    human_immediate_win = find_immediate_win(pre_board, 1, valid)
-                    ai_immediate_win = find_immediate_win(pre_board, 2, valid)
-
                     col = opponent(env.board, env.current_player, valid)
                     if col not in valid:
                         col = valid[0]
@@ -306,34 +329,9 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     obs, reward, terminated, _, _ = env.step(col)
 
-                    # If the human had an immediate win, the AI is required to
-                    # either block it or take its own immediate win. If neither,
-                    # log a clear, copy-pasteable diagnostic.
-                    if (
-                        human_immediate_win is not None
-                        and col != human_immediate_win
-                        and (ai_immediate_win is None or col != ai_immediate_win)
-                    ):
-                        diag = "\n".join(
-                            "  "
-                            + " ".join(
-                                "X" if v == 1 else "O" if v == 2 else "." for v in pre_board[r]
-                            )
-                            for r in range(ROWS)
-                        )
-                        logger.error(
-                            "WATCHDOG: AI ignored a blockable threat.\n"
-                            "  Difficulty: %s\n"
-                            "  Human could win at column %d, AI played %d.\n"
-                            "  AI's own immediate win was at: %s\n"
-                            "Board before AI move:\n%s\n  %s",
-                            args.difficulty,
-                            human_immediate_win,
-                            col,
-                            ai_immediate_win,
-                            diag,
-                            " ".join(str(c) for c in range(COLS)),
-                        )
+                    diagnostic = watchdog_diagnostic(pre_board, col, args.difficulty)
+                    if diagnostic is not None:
+                        logger.error("%s", diagnostic)
                         watchdog_triggered = True
 
                     draw_board(screen, obs)

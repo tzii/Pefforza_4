@@ -160,3 +160,123 @@ def test_main_shim_help_smoke():
     )
     assert result.returncode == 0, result.stderr
     assert "--watch" in result.stdout
+
+
+# ------------------------------------------------------ main loop, faked I/O
+class _FakeCapture:
+    def __init__(self, frames: int) -> None:
+        self.frames = frames
+        self.released = False
+
+    def isOpened(self) -> bool:
+        return True
+
+    def read(self):
+        if self.frames <= 0:
+            return False, None
+        self.frames -= 1
+        return True, np.zeros((48, 64, 3), dtype=np.uint8)
+
+    def release(self) -> None:
+        self.released = True
+
+
+class _FakeDetector:
+    """Stands in for BoardDetector: replays scripted grid readings."""
+
+    readings: list[np.ndarray | None] = []
+
+    def __init__(self) -> None:
+        self.matrix = np.eye(3)
+        self.drawn: list[int] = []
+
+    def calibrate(self, cap, flip: bool = False) -> bool:
+        return True
+
+    def process_frame(self, frame):
+        grid = self.readings.pop(0) if self.readings else self._last
+        self._last = grid
+        return grid, None
+
+    def physical_col(self, display_col: int) -> int:
+        return COLS - 1 - display_col
+
+    def draw_overlays(self, frame) -> None:
+        pass
+
+    def draw_move(self, frame, col: int) -> None:
+        self.drawn.append(col)
+
+
+def _run_main(monkeypatch, argv, *, readings, keys, frames):
+    from pefforza.cli import play_physical
+
+    capture = _FakeCapture(frames)
+    key_iter = iter(keys)
+    monkeypatch.setattr(play_physical.cv2, "VideoCapture", lambda _idx: capture)
+    monkeypatch.setattr(play_physical.cv2, "waitKey", lambda _ms: next(key_iter, -1))
+    monkeypatch.setattr(play_physical.cv2, "imshow", lambda *_a: None)
+    monkeypatch.setattr(play_physical.cv2, "destroyAllWindows", lambda: None)
+    _FakeDetector.readings = list(readings)
+    _FakeDetector._last = None
+    monkeypatch.setattr(play_physical, "BoardDetector", _FakeDetector)
+    monkeypatch.setenv("PEFFORZA_TTS_BACKEND", "null")
+    rc = play_physical.main(argv)
+    assert capture.released
+    return rc
+
+
+def test_main_on_demand_space_recommends_physical_column(monkeypatch, capsys):
+    rc = _run_main(
+        monkeypatch,
+        ["--difficulty", "medium", "--ai-color", "red"],
+        readings=[_grid()],
+        keys=[ord(" "), ord("r"), ord("q")],
+        frames=10,
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    # medium opens in the center: display column 3 -> physical column 4.
+    assert "recommends physical column 4" in out
+    assert "Board tracking reset" in out
+
+
+def test_main_watch_mode_debounces_and_announces(monkeypatch, capsys):
+    occluded = _grid((0, 2))  # yellow first: rejected if it ever settled
+    readings = [occluded] + [_grid((3, 1))] * 10
+    rc = _run_main(
+        monkeypatch,
+        ["--watch", "--voice", "--stable-frames", "3", "--difficulty", "medium",
+         "--ai-color", "yellow"],
+        readings=readings,
+        keys=[],
+        frames=12,
+    )  # fmt: skip
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "rejected" not in out
+    assert out.count("recommends physical column") == 1
+
+
+def test_main_reports_game_over(monkeypatch, capsys):
+    red_wins = _grid((0, 1), (0, 2), (1, 1), (1, 2), (2, 1), (2, 2), (3, 1))
+    rc = _run_main(
+        monkeypatch,
+        ["--watch", "--stable-frames", "1", "--ai-color", "yellow", "--difficulty", "easy"],
+        readings=[red_wins],
+        keys=[],
+        frames=3,
+    )
+    assert rc == 0
+    assert "Game over: RED WINS!" in capsys.readouterr().out
+
+
+def test_main_fails_cleanly_without_camera(monkeypatch):
+    from pefforza.cli import play_physical
+
+    class Closed(_FakeCapture):
+        def isOpened(self) -> bool:
+            return False
+
+    monkeypatch.setattr(play_physical.cv2, "VideoCapture", lambda _idx: Closed(0))
+    assert play_physical.main(["--ai-color", "red"]) == 2

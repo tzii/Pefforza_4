@@ -70,6 +70,16 @@ filterwarnings = [
     "default::DeprecationWarning",
 ]
 
+[tool.coverage.run]
+source = ["pefforza"]
+branch = false
+
+[tool.coverage.report]
+# Ratchet: raise this when coverage improves, never lower it to make CI pass.
+fail_under = 80
+show_missing = true
+skip_covered = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
