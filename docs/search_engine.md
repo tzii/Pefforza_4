@@ -1,13 +1,22 @@
-# Search engine status
+# Search engine
 
-Pefforza currently keeps two search paths side by side.
+> English only. Panoramica in italiano: [it/components_and_models.md](it/components_and_models.md).
+
+Pefforza keeps a matrix search baseline next to the bitboard engines, and
+backs its strongest tier with an exact opening book plus an exact solver.
+
+| Tier | Engine |
+|---|---|
+| `hard` | `BitboardSearchAgent`, depth-8 alpha-beta with the legacy heuristic |
+| `impossible` | `OpeningBook` up to ply 17, then `PerfectSolver.solve_root` (~3 s) |
 
 ## Matrix baseline
 
-`pefforza.agent.minimax.MinimaxAgent` is the correctness baseline and the
-engine behind the `impossible` tier (time-budgeted iterative deepening). Its
-root alpha-beta handling, mate distance scoring, and iterative-deepening
-deadline were corrected before any representation rewrite.
+`pefforza.agent.minimax.MinimaxAgent` is the correctness baseline for the
+bitboard engines (and used to back the `impossible` tier with time-budgeted
+iterative deepening). Its root alpha-beta handling, mate distance scoring,
+and iterative-deepening deadline were corrected before any representation
+rewrite.
 
 Important invariants:
 
@@ -37,7 +46,7 @@ solver prototype.
   the most winning spots. A 12-ply strong solve runs in well under a second
   (`python scripts/benchmark_search.py`).
 
-## Exact `impossible` tier and the opening decision (PR5)
+## Exact `impossible` tier and the opening decision (PR5, historical)
 
 The public `impossible` tier is now backed by the exact solver through
 `PerfectSolver.solve_root`, an *anytime* root search: root moves are
@@ -77,6 +86,71 @@ squander winnable positions (one-ply safety only), so the native backend
 stays on the roadmap; an exact oracle - the solver itself on deep
 positions, or an opening database - is the right tool to measure how much
 that actually costs in strength.
+
+## Opening book and interleaved proofs (PR8)
+
+PR5 left the opening as the weak spot: with the full 3 s budget, a sample of
+game-line positions was proven only 4-56% of the time at plies 8-13 (and the
+tier gave those plies a 50 ms probe), and 76-94% at plies 14-17; only from
+ply 18 on was every sampled position proven. Two changes close the gap.
+
+**Opening book.** `scripts/build_opening_book.py` enumerates every position
+in which the AI is to move up to ply 17 *along the lines it plays itself*:
+the AI's move comes from the book, so only the opponent branches. Moves are
+strongly optimal (fastest win, slowest loss, else a draw), computed by
+Pascal Pons' native solver, with center-first tie-breaking decided in the
+canonical orientation so the build is reproducible byte for byte. Both
+colors are covered. The result is 533,468 entries in 950 KiB
+(`pefforza/agent/data/opening_book.xz`: delta-encoded sorted `uint64` keys,
+`int8` moves and scores, xz-compressed). `tests/test_opening_book.py` checks
+*closure*: following its own book against arbitrary replies, the AI never
+leaves the book before ply 17.
+
+| ply | AI-to-move positions |
+|---:|---:|
+| 0-10 | 6,397 |
+| 11 | 9,155 |
+| 12 | 8,007 |
+| 13 | 32,069 |
+| 14 | 25,835 |
+| 15 | 101,195 |
+| 16 | 72,779 |
+| 17 | 278,031 |
+
+**Interleaved root proofs.** Past the book, `solve_root` used to prove root
+moves one after the other. When the only winning move came last in the
+order, the budget ran out proving that the other moves lose. Root moves now
+get node allowances that grow 4x per round (starting at 2,000 nodes), so the
+cheapest proof surfaces first; aborted searches store nothing in the
+transposition table and finished subtrees are reused, so the repeated work
+stays bounded. The slowest game-line proof in the oracle set dropped from
+9.5 s to 2.9 s. Off-book "random" positions can get slower (one went from
+9.7 s to 32.7 s unbudgeted), which only matters when the AI joins a game in
+progress; the budget still bounds the response time.
+
+## Measuring perfect play: the exact oracle
+
+`pefforza/agent/data/oracle_positions.json` holds 729 positions with the
+native solver's score for every column (`scripts/build_oracle_set.py`,
+seeded): 546 *line* positions from games where the graded side plays
+perfectly (the book where it has an answer) and the opponent half perfectly,
+half randomly, and 183 *random* positions from two noisy players.
+
+```bash
+python -m pefforza.agent.evaluate --oracle --difficulty impossible
+```
+
+| `impossible`, line positions | value-preserving | exactly optimal |
+|---|---:|---:|
+| plies 0-11 | 100% | 100% |
+| plies 12-17 | 100% | 100% |
+| plies 18-25 | 100% | 73.3% |
+| plies 26-41 | 100% | 72.7% |
+| all (546) | **100%** | 93.4% |
+
+Over all 729 positions, including off-book ones, it is 98.4%
+value-preserving. Past the book the solver is weak (win / draw / loss), so
+a won position always stays won but not always by the fastest route.
 
 ## Reproducible benchmark
 

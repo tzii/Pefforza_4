@@ -1,45 +1,98 @@
-# Prestazioni, Limiti, Miglioramenti Futuri e Glossario
+# Performance, Limitations, Future Work and Glossary
 
-Questo modulo riassume le considerazioni prestazionali riscontrate nel codice di Pefforza, i limiti strutturali attuali e la roadmap di miglioramento, concludendo con un glossario dei termini specifici utilizzati.
+> 🇮🇹 [Versione italiana](it/limitations_and_future.md)
 
----
-
-## 1. Performance and Scalability
-
-### Ottimizzazioni Critiche implementate nel Codice:
-1.  **Struttura Dati In-Place nel Minimax**: Nel modulo [minimax.py](../pefforza/agent/minimax.py), l'operazione di posizionamento della pedina simula il posizionamento modificando la matrice originale (`board[row, col] = player`), scende ricorsivamente e rimuove la pedina al ritorno (`board[row, col] = 0`). Questo evita la copia di $6 \times 7$ byte per ciascuno delle migliaia di nodi scansionati al secondo, riducendo drasticamente l'impatto sul Garbage Collector di Python.
-2.  **Cashing della scacchiera in Pygame**: Per mitigare i rallentamenti visivi e lo sfarfallio dello schermo (flickering), l'interfaccia grafica Pygame pre-renderizza la scacchiera statica in una superficie off-screen (`_render_board_surface`) ogni volta che una pedina si stabilizza. Durante le animazioni di caduta, Pygame esegue solo il blit bidimensionale della superficie salvata sovrapponendo il cerchio della pedina in caduta a coordinate calcolate. Questo riduce la complessità computazionale del disegno da $O(R \times C)$ a $O(1)$ per frame.
-3.  **Ordinamento statico delle mosse**: Il Minimax scansiona le colonne partendo dalla colonna centrale ed allargandosi verso i lati (`[3, 2, 4, 1, 5, 0, 6]`). Essendo il centro la zona più contesa del Forza 4, valutare prima queste mosse permette al potatore alfa-beta di tagliare i rami peggiori molto prima, riducendo i nodi analizzati di oltre il $70\%$.
+This module summarizes the performance work in Pefforza, its current
+limits, the improvement roadmap, and a glossary of project terms.
 
 ---
 
-## 2. Known Limitations
-1.  **Fattori di illuminazione fissi (HSV statici)**: Le soglie HSV di riconoscimento dei colori sono codificate staticamente in [board_detector.py](../pefforza/vision/board_detector.py) (`_DEFAULT_RED_RANGES`, `_DEFAULT_YELLOW_RANGE`). Se la stanza in cui si gioca è troppo buia o presenta forti luci al neon azzurre, le pedine potrebbero non venire riconosciute correttamente.
-2.  **Calibrazione prospettica manuale rigida**: Se la webcam o il tavolo da gioco subiscono vibrazioni o spostamenti anche minimi dopo la calibrazione, la matrice di omografia prospettica cessa di corrispondere e richiede una ricalibrazione completa da parte dell'utente.
-3.  **Latenza dell'inizializzazione del modello PPO**: Il caricamento della libreria `stable_baselines3` all'avvio introduce un ritardo di circa 1-2 secondi dovuto all'importazione pesante del framework PyTorch.
-4.  **Addestramento su avversari puramente casuali**: La policy neurale pre-addestrata in `notebook_model.zip` è allenata all'interno del wrapper `SinglePlayerWrapper` che compie mosse casuali per l'avversario. Di conseguenza, pur avendo una buona padronanza delle regole base, il modello neurale risulta meno competitivo rispetto all'agente Negamax `impossible`.
+## 1. Performance and scalability
+
+1. **Bitboards**: `BitPosition` stores a position as two integers (seven bits
+   per column, one sentinel bit). Wins, threats and legal moves are a few
+   shifts and masks instead of array scans, which makes the `hard` tier an
+   order of magnitude faster than the matrix baseline it is pinned to.
+2. **Opening book lookup**: the book is a sorted array of 533k canonical keys
+   (950 KiB compressed, loaded once); a lookup is one binary search, so the
+   first 17 plies are answered in well under a millisecond.
+3. **Interleaved root proofs**: past the book, `solve_root` gives every
+   unresolved root move a geometrically growing node allowance, so a cheap
+   winning proof is not starved behind expensive refutations. On the
+   oracle's game lines the slowest proof dropped from 9.5 s to under 3 s.
+4. **Symmetry-canonical transposition table**: a position and its mirror
+   share one fixed-size table entry, packed into parallel integer arrays.
+5. **Cached board surface in Pygame**: the static board is pre-rendered
+   once per settled move; drop animations only blit that surface plus one
+   circle per frame, which removes flicker.
+6. **Center-first move ordering**: searches try `[3, 2, 4, 1, 5, 0, 6]` (then
+   by winning spots), so alpha-beta cuts the worst branches early.
 
 ---
 
-## 3. Suggested Improvements
+## 2. Known limitations
 
-| Priorità | Miglioramento | Perché è importante | File Coinvolti | Rischio |
+1. **Off-book positions**: the book covers every position the `impossible`
+   AI can reach *when it plays from the first move*. If it joins a game in
+   progress (e.g. a physical board where someone else played the opening),
+   shallow positions may be unprovable within the budget and the move is
+   the tactically-safe fallback - 97-98% value-preserving on the oracle's
+   off-book positions rather than 100%.
+2. **Fastest win past the book**: the solver past ply 17 is weak (win /
+   draw / loss), so it always keeps a won game won but does not always pick
+   the quickest win (about 73% exactly optimal there).
+3. **Vision is tested on rendered scenes**: localization and lighting
+   adaptation are verified on synthetic boards under perspective, clutter
+   and dim light, but the repository has no real webcam photos yet (the
+   test suite picks them up automatically once added to
+   `tests/fixtures/vision/`).
+4. **Localization assumptions**: automatic calibration expects a blue frame
+   with at least ~85% of its holes visible; heavy occlusion or an unusual
+   board color needs the manual four-click calibration.
+5. **Camera or board movement**: the perspective matrix is fixed after
+   calibration; if the camera or board moves, restart the assistant to
+   recalibrate.
+6. **Neural tier is an imitation**: the CNN is distilled from exact solver
+   labels and is far stronger than the old PPO policy, but it is not perfect
+   (see the README for its oracle score) and is deliberately not wrapped by
+   the tactical safety net, so it shows what the network itself learned.
+7. **Model start-up**: importing Stable-Baselines3/PyTorch for the `neural`
+   tier adds about 1-2 s at start.
+
+---
+
+## 3. Roadmap
+
+| Priority | Improvement | Why | Files | Risk |
 |:---|:---|:---|:---|:---|
-| **P0** | **Calibrazione Automatica dei Colori** | Permette al sistema di campionare automaticamente i valori HSV di Rosso e Giallo esaminando le prime pedine giocate, adattandosi a qualsiasi tipo di illuminazione ambientale. | [board_detector.py](../pefforza/vision/board_detector.py) | Basso |
-| **P1** | **Rilevamento Automatico dei Contorni (ArUco / Canny)** | Elimina l'obbligo dei 4 click manuali rilevando i bordi esterni della scacchiera mediante marker ArUco incollati sugli angoli o tracciando i contorni del rettangolo blu del Forza 4. | [board_detector.py](../pefforza/vision/board_detector.py) | Medio |
-| **P2** | **Addestramento tramite Self-Play Competitivo** | Permette di addestrare un modello PPO più forte facendolo giocare contro se stesso o contro versioni storiche della sua stessa rete (invece che contro mosse puramente casuali). | [train.py](../pefforza/agent/train.py) | Medio |
-| **P3** | **Portabilità Web (ONNX + OpenCV.js)** | Convertire il modello PyTorch salvato in formato ONNX ed esportare la logica in JavaScript, consentendo agli utenti di eseguire l'assistente AR direttamente dal browser del telefono senza installare Python localmente. | Nuovo modulo (esportazione) | Alto |
+| **P1** | **Real webcam fixtures** | Regression-test vision on real lighting, glare and boards, not just rendered scenes. | `tests/fixtures/vision/` | Low |
+| **P1** | **Continuous re-localization** | Detect camera/board movement and re-run `locate_board` automatically instead of requiring a restart. | `board_detector.py`, `play_physical.py` | Medium |
+| **P2** | **Off-book coverage** | Add all positions up to ~ply 8 to the book so joining a game in progress is also perfect. | `scripts/build_opening_book.py`, `book.py` | Low |
+| **P2** | **Strong solving past the book** | Prefer the fastest win when it fits the budget. | `search/perfect.py` | Medium |
+| **P3** | **Perfect play in the browser** | Port the book lookup and solver to the website demo (TypeScript/WASM). | `website/` | Medium |
+| **P3** | **ONNX export** | Run the neural tier without PyTorch. | new export module | Medium |
+
+Done since the previous roadmap: automatic color calibration (lighting
+adaptation), automatic board-corner detection, solver-taught neural
+training, and perfect opening play.
 
 ---
 
 ## 4. Glossary
 
-| Termine | Significato | Dove Compare |
+| Term | Meaning | Where |
 |:---|:---|:---|
-| **Warping Prospettico** | Trasformazione geometrica che corregge la distorsione di una foto inclinata proiettandola come se fosse stata scattata perpendicolarmente al piano. | `vision/board_detector.py` |
-| **Negamax** | Variante semplificata dell'algoritmo Minimax per giochi a somma zero basata sull'uguaglianza $\max(a, b) = -\min(-a, -b)$. | `agent/minimax.py` |
-| **Iterative Deepening** | Tecnica di ricerca che esplora l'albero delle mosse a profondità crescenti (1, 2, 3...) arrestandosi non appena scade il limite di tempo e restituendo la migliore mossa calcolata. | `agent/minimax.py` |
-| **Tactical Safety Net** | Meccanismo di sicurezza deterministico a un solo livello (1-ply) che forza il blocco di minacce di sconfitta o prende vittorie immediate. | `agent/minimax.py` |
-| **PPO** | Proximal Policy Optimization. Algoritmo di Reinforcement Learning per addestrare reti neurali ad associare stati ad azioni ottimali. | `agent/train.py` |
-| **Gymnasium** | Fork moderno e standardizzato della libreria OpenAI Gym per la modellazione di ambienti di apprendimento per rinforzo. | `envs/connect4_env.py` |
-| **Warp Matrix** | Matrice omografica di dimensione $3 \times 3$ usata da OpenCV per mappare i pixel dell'inquadratura inclinata a quella rettificata. | `vision/board_detector.py` |
+| **Bitboard** | A position encoded as integers, one bit per cell, so game rules become bit operations. | `agent/search/bitboard.py` |
+| **Opening book** | A precomputed table of perfect moves for early positions, generated offline by a native solver. | `agent/search/book.py` |
+| **Oracle** | Positions with the exact score of every column, used to grade agents move by move. | `agent/oracle.py` |
+| **Value-preserving move** | A move that keeps the game-theoretic outcome (won stays won, drawn stays drawn). | `agent/oracle.py` |
+| **Exactly optimal move** | A value-preserving move that also wins fastest or loses slowest. | `agent/oracle.py` |
+| **Weak / strong solving** | Computing only win/draw/loss vs. the exact distance to the end of the game. | `agent/search/perfect.py` |
+| **Transposition table** | A cache of search results keyed by position, shared between move orders that reach the same position. | `agent/search/perfect.py` |
+| **Negamax** | Minimax for zero-sum games using max(a, b) = -min(-a, -b). | `agent/minimax.py`, `agent/search/` |
+| **Tactical safety net** | Deterministic 1-ply guard: take an immediate win, else block an immediate threat. | `agent/minimax.py` |
+| **Distillation** | Training a network to imitate a stronger teacher (here, the exact solver's labels). | `agent/train.py` |
+| **PPO** | Proximal Policy Optimization, the reinforcement learning algorithm used for fine-tuning. | `agent/train.py` |
+| **Gymnasium** | The maintained successor of OpenAI Gym, the standard RL environment API. | `envs/connect4_env.py` |
+| **Perspective warp / homography** | A 3 x 3 transform that maps the tilted camera view of the board to a front-on rectangle. | `vision/board_detector.py` |
+| **Hole lattice** | The 6 x 7 grid of hole centers used to locate the board automatically. | `vision/board_detector.py` |

@@ -1,5 +1,5 @@
 // Browser-only demonstration. Geometry is exported from pefforza/constants.py.
-// This bounded search is independent of the full Python solver and PPO model.
+// This bounded search is independent of the full Python solver and neural model.
 import geometry from './geometry.json';
 
 export const { rows, cols, winLength, empty, ai, human, windows } = geometry;

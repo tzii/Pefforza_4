@@ -43,10 +43,10 @@ const modes = [
     file: 'play_physical.py',
     title: 'Bring your own board.',
     description:
-      'Point a webcam at the game, click its four corners, and let computer vision read your next move.',
-    command: 'python play_physical.py --difficulty hard',
+      'Point a webcam at the game: it finds the board on its own, reads every disc, and shows the best move.',
+    command: 'pefforza-physical --difficulty impossible --watch',
     tag: 'AUGMENTED REALITY',
-    hint: 'SPACE to analyze the position. Q to quit.',
+    hint: 'ENTER accepts the detected board. --watch follows the game live. Q to quit.',
   },
 ];
 

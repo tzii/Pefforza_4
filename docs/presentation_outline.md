@@ -1,194 +1,230 @@
 # Pefforza 4 - Presentation Outline
 
-## Pubblico target
+> 🇮🇹 [Versione italiana](it/presentation_outline.md)
 
-- Docenti, compagni di corso e commissioni scolastiche/universitarie.
-- Persone con basi di programmazione, ma non necessariamente esperte di reinforcement learning o computer vision.
-- Recruiter o visitatori portfolio interessati a capire sia il risultato sia il processo ingegneristico.
+## Target audience
 
-## Messaggio principale
+- Teachers, classmates and school/university panels.
+- People who can program but are not necessarily experts in reinforcement
+  learning or computer vision.
+- Recruiters and portfolio visitors who want to understand both the result
+  and the engineering process.
 
-Pefforza 4 non e solo un modello che sceglie una colonna: e un sistema completo
-che collega una scacchiera fisica a percezione visiva, logica di gioco,
-reinforcement learning, ricerca classica, realta aumentata e feedback vocale.
-L'evoluzione del progetto mostra anche una lezione importante: un modello
-neurale puo apprendere una strategia, ma un prodotto affidabile nasce
-dall'integrazione tra apprendimento, algoritmi deterministici, test e strumenti
-di diagnosi.
+## Core message
 
-## Tono e durata
+Pefforza 4 is not just a model that picks a column: it is a complete system
+that connects a physical board to visual perception, game logic, an exact
+solver, a learned policy, augmented reality and spoken feedback. The
+project's evolution also teaches an important lesson: "perfect" is a claim
+that has to be measured. A neural network can learn a strategy, but a
+trustworthy product comes from combining learning, exact algorithms, tests
+and diagnostic tools - and checking every move against an oracle.
 
-- Durata consigliata: 12-16 minuti, piu 3-5 minuti di demo.
-- Linguaggio: tecnico ma accessibile, con i termini specialistici spiegati al primo uso.
-- Ritmo: una tesi chiara per slide, visuale dominante e dettaglio affidato alle note speaker.
+## Tone and length
 
-## Scaletta slide-by-slide
+- Suggested length: 12-16 minutes, plus a 3-5 minute demo.
+- Language: technical but accessible, with specialist terms explained on
+  first use.
+- Pace: one clear thesis per slide, a dominant visual, details in the
+  speaker notes.
+
+## Slide by slide
 
 ### 1. Pefforza 4
 
-**Claim:** una scacchiera fisica diventa un sistema intelligente.
+**Claim:** a physical board becomes an intelligent system.
 
-**Visuale:** title slide con tabellone Forza 4, freccia AR e metriche sintetiche.
+**Visual:** title slide with a Connect Four board, an AR arrow and summary
+metrics.
 
-**Note speaker:**
-- Presentare il progetto come integrazione di AI, computer vision e interaction design.
-- Anticipare le tre modalita: terminale, GUI Pygame e assistente fisico AR.
-- Chiarire che la presentazione mostrera sia il risultato sia l'evoluzione tecnica.
+**Speaker notes:**
+- Present the project as an integration of AI, computer vision and
+  interaction design.
+- Preview the three modes: terminal, Pygame GUI and physical AR assistant.
+- Say the talk shows both the result and the technical evolution.
 
-### 2. La vera sfida e mantenere coerenti quattro mondi
+### 2. The real challenge is keeping four worlds consistent
 
-**Claim:** il problema non e solo scegliere una mossa, ma collegare realta,
-percezione, regole e feedback senza perdere affidabilita.
+**Claim:** the problem is not only choosing a move, but connecting reality,
+perception, rules and feedback without losing reliability.
 
-**Visuale:** flusso a quattro blocchi con i rischi principali: prospettiva,
-illuminazione, latenza e credibilita tattica.
+**Visual:** four-block flow with the main risks: perspective, lighting,
+latency and tactical credibility.
 
-**Note speaker:**
-- Il Forza 4 digitale e semplice da rappresentare; il mondo fisico introduce rumore.
-- Una singola incoerenza tra colori, ID giocatori o coordinate produce una mossa sbagliata.
-- La modularita nasce dalla necessita di isolare e verificare ogni passaggio.
+**Speaker notes:**
+- Digital Connect Four is easy to represent; the physical world adds noise.
+- One inconsistency between colors, player IDs or coordinates produces a
+  wrong move.
+- Modularity comes from the need to isolate and verify every step.
 
-### 3. Dal prototipo al prodotto testato
+### 3. From prototype to verified product
 
-**Claim:** in cinque mesi il progetto passa da demo monolitica a package
-installabile, diagnostico e verificato.
+**Claim:** the project grew from a monolithic demo into an installable,
+diagnosable and measured package.
 
-**Visuale:** timeline dicembre 2025 - maggio 2026.
+**Visual:** timeline from December 2025 to October 2026.
 
-**Note speaker:**
-- 10 dicembre: primo prototipo con PPO, webcam e voce.
-- 17 dicembre: modalita fisica, calibrazione e notebook di sperimentazione.
-- Maggio: refactor del package, minimax, safety net, watchdog, test vision e CI.
+**Speaker notes:**
+- December: first prototype with PPO, webcam and voice; then physical mode,
+  calibration and experiment notebooks.
+- May: package refactor, minimax, safety net, watchdog, vision tests and CI.
+- September: bitboard engines, board-state validation, exact solver.
+- October: opening book and exact oracle (perfect play), automatic board
+  localization and lighting adaptation, solver-taught neural network.
 
-### 4. Un motore, tre esperienze, cinque livelli
+### 4. One engine, three experiences, five levels
 
-**Claim:** lo stesso core supporta modalita e difficolta diverse senza duplicare
-la logica.
+**Claim:** the same core supports different modes and difficulties without
+duplicating logic.
 
-**Visuale:** tre mockup editabili per CLI, GUI e AR; barra delle difficolta.
+**Visual:** three mockups for CLI, GUI and AR; a difficulty bar.
 
-**Note speaker:**
-- CLI per debugging rapido, GUI per esperienza digitale, AR per la demo fisica.
-- Easy, medium, hard, impossible e neural condividono lo stesso contratto Agent.
-- Il registro delle difficolta rende l'estensione locale e riusabile.
+**Speaker notes:**
+- CLI for quick debugging, GUI for the digital experience, AR for the
+  physical demo.
+- easy, medium, hard, impossible and neural share the same Agent contract.
+- The difficulty registry keeps extensions local and reusable.
 
-### 5. Percezione, stato, decisione, interazione
+### 5. Perception, state, decision, interaction
 
-**Claim:** l'architettura separa il training dalla pipeline runtime, collegandoli
-attraverso la stessa matrice 6x7.
+**Claim:** the architecture separates offline data generation and training
+from the runtime pipeline, and connects them through the same 6x7 matrix.
 
-**Visuale:** architettura a due corsie: runtime fisico e training PPO.
+**Visual:** two-lane architecture: physical runtime and offline lane
+(native solver -> opening book / oracle / teacher data -> distilled CNN).
 
-**Note speaker:**
-- OpenCV produce una griglia discreta, non immagini in ingresso al modello.
-- rules.py e Connect4Env definiscono il significato dello stato.
-- Il checkpoint PPO e solo uno dei possibili motori decisionali.
+**Speaker notes:**
+- OpenCV produces a discrete grid; models never see camera images.
+- rules.py and Connect4Env define what the state means.
+- The book, the oracle and the network are all generated offline and
+  shipped as files.
 
-### 6. La matrice 6x7 e il contratto comune
+### 6. The 6x7 matrix is the shared contract
 
-**Claim:** regole, test, agenti e visione comunicano attraverso una
-rappresentazione minima e verificabile.
+**Claim:** rules, tests, agents and vision communicate through one minimal,
+verifiable representation.
 
-**Visuale:** tabellone numerico con schema stato-azione-ricompensa.
+**Visual:** numeric board with a state-action-reward diagram.
 
-**Note speaker:**
-- Stato: array NumPy int8 con valori 0, 1 e 2.
-- Azione: una colonna tra 0 e 6; la gravita determina la riga.
-- Ricompense: +1 vittoria, 0 transizione/pareggio, -10 mossa illegale; il wrapper traduce una vittoria avversaria in -1.
+**Speaker notes:**
+- State: NumPy int8 array with values 0, 1 and 2.
+- Action: a column from 0 to 6; gravity decides the row.
+- Rewards: +1 win, 0 transition/draw, -10 illegal move; the training wrapper
+  turns an opponent win into -1.
 
-### 7. Ha imparato giocando, non guardando immagini
+### 7. Perfect play needs an opening book
 
-**Claim:** PPO apprende in simulazione tramite tentativi, ricompense e
-aggiornamenti iterativi della policy.
+**Claim:** pure-Python search cannot prove the opening in time, so the
+answers are computed once, offline, and looked up.
 
-**Visuale:** ciclo osservazione -> policy -> azione -> ricompensa -> update.
+**Visual:** a game tree where the AI's moves are fixed and only the
+opponent branches, ending at ply 17; the size: 533k positions in 950 KiB.
 
-**Note speaker:**
-- La policy MLP riceve 42 valori e restituisce una delle sette colonne.
-- SinglePlayerWrapper esegue automaticamente la mossa dell'avversario casuale.
-- Il checkpoint incluso registra circa 501.760 timestep di training.
+**Speaker notes:**
+- Measured: with 3 s, only 4-56% of positions at plies 8-13 could be proven.
+- A native solver (Pascal Pons) computes the strongly optimal move for every
+  position the AI can reach up to ply 17, for both colors.
+- After the book the Python solver proves every move; interleaved root
+  proofs keep it under the 3 s budget.
 
-### 8. Il neurale apprende, ma la ricerca classica e piu forte
+### 8. "Perfect" is measured, not claimed
 
-**Claim:** la valutazione ha trasformato un limite del PPO in una scelta
-architetturale consapevole.
+**Claim:** an exact oracle grades every move of every tier.
 
-**Visuale:** confronto PPO contro minimax depth 4 e sintesi dei limiti del training.
+**Visual:** bar chart of value-preserving moves per tier on game lines:
+impossible 100%, neural 96.3%, hard 90.8%, medium 77.5%, easy 65.6%.
 
-**Note speaker:**
-- Benchmark registrato nella cronologia: 27,5% vittorie e 72,5% sconfitte su 40 partite.
-- L'avversario casuale insegna le basi ma non prepara a tattiche profonde.
-- Da qui nasce l'approccio ibrido: neural per sperimentazione, minimax per forza reale.
+**Speaker notes:**
+- 729 positions with the exact score of every column.
+- Value-preserving: a won game stays won, a drawn one stays drawn.
+- Beating weak opponents proves little; the oracle shows where each engine
+  goes wrong.
 
-### 9. Strategia piu garanzie deterministiche
+### 9. The network learns from the solver
 
-**Claim:** ogni difficolta sceglie una strategia, mentre la safety net impedisce
-gli errori tattici immediati.
+**Claim:** distilling exact labels turned the weakest tier into a strong
+one, and the learning story is the lesson.
 
-**Visuale:** scala delle difficolta e decision tree win -> block -> delegate.
+**Visual:** before/after: PPO against a random opponent (59.7%) vs CNN
+distilled from solver labels (96.3% value-preserving on game lines).
 
-**Note speaker:**
-- Hard usa Negamax con alpha-beta e ordinamento center-first.
-- Impossible usa iterative deepening con budget temporale.
-- La safety net controlla prima vittorie e minacce a un ply, anche se l'agente sottostante e debole.
+**Speaker notes:**
+- The old policy only ever played first, against random moves.
+- The new one: a small CNN over self/opponent/empty planes, trained on
+  ~308k solver-labelled positions (and their mirror images).
+- It plays from its own judgment, without search or safety net.
 
-### 10. Quattro click rendono misurabile una camera inclinata
+### 10. The board finds itself
 
-**Claim:** la calibrazione prospettica trasforma un quadrilatero reale in un
-tabellone rettificato 700x600.
+**Claim:** the lattice of holes turns a tilted camera view into a measurable
+grid - no clicks needed.
 
-**Visuale:** camera inclinata, quattro corner, omografia e board normalizzata.
+**Visual:** tilted camera, detected holes, fitted 6x7 lattice, homography,
+rectified 700x600 board.
 
-**Note speaker:**
-- L'utente puo cliccare gli angoli in qualunque ordine.
-- Il detector li ordina in TL, TR, BR, BL e calcola una matrice 3x3.
-- Il warp rende le 42 celle regolari e quindi confrontabili.
+**Speaker notes:**
+- The holes are the non-blue blobs inside the blue frame; the four corner
+  holes define the lattice.
+- The lattice must predict the detected holes, otherwise the user clicks
+  four corners (any order).
+- The warp makes the 42 cells regular and comparable.
 
-### 11. Ogni cella diventa una misura di colore
+### 11. Every cell becomes a color measurement that adapts
 
-**Claim:** HSV, ROI interne e soglie esplicite rendono il riconoscimento
-semplice da spiegare e testare.
+**Claim:** HSV bands, inset ROIs and explicit thresholds keep recognition
+easy to explain - and every validated reading re-fits it to the light.
 
-**Visuale:** board 6x7, zoom su una cella, bande HSV e barra di fill ratio.
+**Visual:** 6x7 board, zoom on one cell, HSV bands moving between bright and
+dim light, fill-ratio bar.
 
-**Note speaker:**
-- Il rosso richiede due intervalli hue per il wrap a 0/180; il giallo uno.
-- Una ROI esclude il 20% dei bordi per ignorare la plastica della griglia.
-- Una cella e occupata quando almeno il 30% dei pixel appartiene a un colore; la confidence aiuta la diagnosi.
+**Speaker notes:**
+- Red needs two hue ranges because it wraps around 0/180; yellow one.
+- The ROI drops 20% of the borders; a cell is occupied when 30% of its
+  pixels match a color.
+- New thresholds are adopted only if they reproduce the validated reading
+  exactly.
 
-### 12. Dal frame alla freccia AR
+### 12. From frame to AR arrow
 
-**Claim:** una mossa fisica attraversa sei trasformazioni controllate prima di
-tornare all'utente.
+**Claim:** a physical move passes through controlled, validated
+transformations before it returns to the user.
 
-**Visuale:** sequenza webcam -> grid -> swap -> agent -> mirror -> overlay/voice.
+**Visual:** webcam -> grid -> validation -> swap -> agent -> mirror ->
+overlay/voice.
 
-**Note speaker:**
-- La visione usa 1=rosso e 2=giallo; il modello usa 1=self e 2=opponent.
-- swap_perspective evita di addestrare un modello separato per ciascun colore.
-- Poiche il feed e specchiato, la colonna viene rimappata prima di disegnare la freccia.
+**Speaker notes:**
+- The validator rejects impossible readings (a hand, a token mid-drop).
+- Vision uses 1=red and 2=yellow; agents use 1=self and 2=opponent;
+  swap_perspective translates.
+- The feed is mirrored, so the spoken column is translated to the physical
+  board.
 
-### 13. L'affidabilita e una feature
+### 13. Reliability is a feature
 
-**Claim:** test, CI, watchdog e componenti fail-soft trasformano bug osservati
-in regressioni automatizzate.
+**Claim:** tests, CI, the oracle, the watchdog and fail-soft components turn
+observed bugs into automated regressions.
 
-**Visuale:** metriche di qualita e tre casi problema -> soluzione -> prova.
+**Visual:** quality metrics and three problem -> fix -> proof cases.
 
-**Note speaker:**
-- 108 test headless, senza webcam, audio o modello obbligatorio.
-- CI su Python 3.10-3.13 con Ruff, formattazione, Mypy e Pytest con coverage.
-- Esempi: minacce ignorate, warp ruotato e animazione saltata dopo il tempo di calcolo dell'AI.
+**Speaker notes:**
+- 273 headless tests: no webcam, audio or trained model required; CLI,
+  GUI and AR loops are tested end to end.
+- CI on Python 3.10-3.13 plus Windows and macOS, with Ruff, Mypy, a coverage
+  floor and a wheel smoke test.
+- Examples: an ignored threat (safety net + watchdog), a starved winning
+  proof (interleaved search), dim light (self-checking color adaptation).
 
-### 14. La prossima evoluzione parte dai limiti reali
+### 14. The next step starts from real limits
 
-**Claim:** Pefforza e gia una piattaforma estendibile; la roadmap migliora
-robustezza visiva, apprendimento e accessibilita.
+**Claim:** Pefforza already plays perfectly; the roadmap is about the real
+world.
 
-**Visuale:** roadmap in quattro tappe e takeaway finale.
+**Visual:** four-step roadmap and a final takeaway.
 
-**Note speaker:**
-- HSV adattivo e rilevamento automatico eliminerebbero gran parte della calibrazione manuale.
-- Self-play competitivo o avversari curricolari renderebbero il PPO piu forte.
-- Un export ONNX/OpenCV.js potrebbe portare l'assistente su browser e smartphone.
-- Chiusura: il valore principale e l'integrazione verificabile, non un singolo algoritmo.
+**Speaker notes:**
+- Real webcam photos as regression fixtures; automatic re-localization when
+  the camera moves.
+- Off-book coverage for games joined midway; fastest wins past the book.
+- Perfect play in the browser demo; ONNX export of the network.
+- Closing: the main value is verifiable integration, not a single
+  algorithm.

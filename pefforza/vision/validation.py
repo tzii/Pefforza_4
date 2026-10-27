@@ -6,7 +6,8 @@ glare can flip a cell's color. Feeding any of those straight into the AI
 produces confident nonsense.
 
 :class:`BoardStateValidator` is the minimal gate from the technical plan
-(8.2): before a detected grid can drive an AI recommendation it must be
+(8.2, ``docs/it/Pefforza_4_Piano_Miglioramenti_Tecnici.docx``): before a
+detected grid can drive an AI recommendation it must be
 
 * structurally plausible - gravity holds, no token floats over an empty cell;
 * turn-compatible - token counts match the red-first move order;

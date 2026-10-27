@@ -1,51 +1,71 @@
-# Interfacce Pubbliche, Configurazione e Dipendenze
+# Public Interfaces, Configuration and Dependencies
 
-Questo modulo documenta tutte le interfacce disponibili per interagire con il sistema Pefforza (CLI/GUI), i parametri di configurazione configurabili e l'elenco delle librerie software necessarie.
+> 🇮🇹 [Versione italiana](it/interfaces_and_config.md)
+
+This module documents every way to drive Pefforza (CLI/GUI/AR), the
+available configuration and the software dependencies.
 
 ---
 
-## 1. API / CLI / Public Interface
-Il sistema viene controllato principalmente mediante interfacce a riga di comando (CLI).
+## 1. Commands
 
-### Comandi CLI Principali
+After `pip install -e .` (or a wheel install) the console scripts are on the
+`PATH`; the repo-root scripts work from a source checkout.
 
-| Comando | Scopo | Argomenti Chiave | Implementazione |
+| Command | Purpose | Key arguments | Implementation |
 |:---|:---|:---|:---|
-| `python play_cli.py` | Gioca una partita in modalità testuale | `--difficulty` (easy, medium, hard, impossible, neural)<br>`--voice` (abilita TTS)<br>`--model` (percorso modello neurale) | [play_cli.py](../play_cli.py) |
-| `python play_gui.py` | Gioca una partita con interfaccia Pygame | `--difficulty`<br>`--no-animate` (disabilita animazioni)<br>`--seed` (riproducibilità) | [play_gui.py](../play_gui.py) |
-| `python play_physical.py` | Assistente AR su telecamera on-demand | `--ai-color` (red, yellow)<br>`--camera` (indice video device) | [play_physical.py](../play_physical.py) |
-| `python main.py` | Assistente AR continuo in tempo reale | `--camera`<br>`--no-voice` (disabilita TTS) | [main.py](../main.py) |
-| `python -m pefforza.vision.diagnose` | Strumento live di calibrazione e diagnostica visiva | `--camera`<br>`--flip` (specchia feed video) | [pefforza/vision/diagnose.py](../pefforza/vision/diagnose.py) |
-| `python -m pefforza.agent.train` | Addestra una nuova policy PPO RL | `--timesteps` (step per ciclo)<br>`--iterations` (numero iterazioni) | [pefforza/agent/train.py](../pefforza/agent/train.py) |
-| `python -m pefforza.agent.evaluate` | Valuta la win-rate di un modello in batch | `--opponent` (random, heuristic, minimax, self, model)<br>`--games` (numero partite) | [pefforza/agent/evaluate.py](../pefforza/agent/evaluate.py) |
+| `pefforza-cli` / `python play_cli.py` | Text game in the terminal | `--difficulty` (easy, medium, hard, impossible, neural), `--voice`, `--model`, `--seed` | [play_cli.py](../pefforza/cli/play_cli.py) |
+| `pefforza-gui` / `python play_gui.py` | Pygame game | `--difficulty`, `--no-animate`, `--model`, `--seed` | [play_gui.py](../pefforza/cli/play_gui.py) |
+| `pefforza-physical` / `python play_physical.py` | AR assistant for a physical board | `--difficulty`, `--ai-color` (red, yellow), `--camera`, `--watch`, `--stable-frames`, `--voice`/`--no-voice`, `--model`, `--seed` | [play_physical.py](../pefforza/cli/play_physical.py) |
+| `python main.py` | Continuous AR assistant (= `pefforza-physical --watch --voice --ai-color yellow`) | any `pefforza-physical` argument, e.g. `--no-voice` | [main.py](../main.py) |
+| `python -m pefforza.vision.diagnose` | Live vision diagnostics | `--camera`, `--flip` | [diagnose.py](../pefforza/vision/diagnose.py) |
+| `python -m pefforza.agent.evaluate` | Matches, tier comparison, oracle grading | `--difficulty`, `--model`, `--opponent` (random, heuristic, minimax, self, model), `--games`, `--oracle`, `--oracle-source` (all, line, random) | [evaluate.py](../pefforza/agent/evaluate.py) |
+| `python -m pefforza.agent.train` | Solver distillation or PPO training | `--teacher`, `--epochs`, `--out`; PPO: `--timesteps`, `--iterations`, `--opponent` (random, heuristic, hard), `--init` | [train.py](../pefforza/agent/train.py) |
+| `python scripts/build_opening_book.py` | Regenerate the opening book (native solver) | `--solver`, `--max-ply` | [script](../scripts/build_opening_book.py) |
+| `python scripts/build_oracle_set.py` | Regenerate the oracle set | `--solver`, `--seed` | [script](../scripts/build_oracle_set.py) |
+| `python scripts/build_teacher_set.py` | Generate distillation data | `--solver`, `--games`, `--out` | [script](../scripts/build_teacher_set.py) |
+| `python scripts/benchmark_search.py` | Search-engine benchmarks | see `--help` | [script](../scripts/benchmark_search.py) |
+
+### Physical assistant controls
+
+| Key | Effect |
+|:---|:---|
+| ENTER / `a` (calibration) | Accept the automatically detected board |
+| Mouse clicks (calibration) | Set the four corners manually, any order |
+| SPACE | Analyze the current board (on-demand mode) |
+| `r` | Reset board tracking (start a new history) |
+| `q` | Quit |
 
 ---
 
-## 2. Configuration and Environment
-Le configurazioni di Pefforza possono essere definite sia tramite parametri CLI a runtime che mediante variabili d'ambiente.
+## 2. Configuration and environment
 
-### Tabella delle Configurazioni
-
-| Impostazione | Dove si trova | Default | Obbligatorio | Descrizione |
-|:---|:---|:---|:---|:---|
-| `PEFFORZA_TTS_BACKEND` | Variabile d'ambiente | (Vuoto - usa pyttsx3) | No | Se impostata su `null`, forza l'uso di `NullBackend` disattivando il sintetizzatore vocale offline. |
-| `ROWS` | [pefforza/constants.py](../pefforza/constants.py) | `6` | Sì | Numero di righe della scacchiera. Modificabile solo da codice. |
-| `COLS` | [pefforza/constants.py](../pefforza/constants.py) | `7` | Sì | Numero di colonne della scacchiera. Modificabile solo da codice. |
-| `WIN_LENGTH` | [pefforza/constants.py](../pefforza/constants.py) | `4` | Sì | Numero di pedine consecutive necessarie per vincere. |
-| `DEFAULT_MODEL_PATH` | [pefforza/constants.py](../pefforza/constants.py) | `pefforza/agent/models/notebook_model.zip` | Sì | Percorso relativo del modello neurale precaricato. |
+| Setting | Where | Default | Description |
+|:---|:---|:---|:---|
+| `PEFFORZA_TTS_BACKEND` | Environment variable | empty (use `pyttsx3`) | `null` forces the silent `NullBackend`. |
+| `SDL_VIDEODRIVER` | Environment variable | platform default | `dummy` runs Pygame headless (used by the tests). |
+| `ROWS`, `COLS`, `WIN_LENGTH` | [constants.py](../pefforza/constants.py) | `6`, `7`, `4` | Board geometry; code-only. |
+| `DEFAULT_MODEL_PATH` | [constants.py](../pefforza/constants.py) | `pefforza/agent/models/notebook_model.zip` | Bundled neural checkpoint. |
+| `IMPOSSIBLE_TIME_BUDGET` | [difficulty.py](../pefforza/agent/difficulty.py) | `3.0` s | Solver budget past the opening book. |
+| `HARD_BITBOARD_DEPTH` | [difficulty.py](../pefforza/agent/difficulty.py) | `8` | Search depth of the `hard` tier. |
+| `DEFAULT_BOOK_PATH` | [search/book.py](../pefforza/agent/search/book.py) | `pefforza/agent/data/opening_book.xz` | Missing or corrupt book: warning, search fallback. |
+| `ColorProfile` | [board_detector.py](../pefforza/vision/board_detector.py) | indoor-lighting HSV bands | Per-detector thresholds; adapted at runtime. |
 
 ---
 
-## 3. Dependencies and External Services
-Il progetto riduce al minimo l'uso di API cloud esterne per garantire il pieno funzionamento in locale senza connessione internet.
+## 3. Dependencies
 
-### Tabella delle Dipendenze Principali
+Everything runs locally; no cloud service is used.
 
-| Dependency | Usage | Files | Importance | Conseguenza se rimossa |
-|:---|:---|:---|:---|:---|
-| `opencv-python` | Elaborazione video, calibrazione prospettica, overlays e classificazione colore HSV | `vision/board_detector.py`, `diagnose.py`, `play_physical.py`, `main.py` | Critica | Nessun supporto per telecamera fisica o realtà aumentata. Rimangono utilizzabili solo CLI e GUI Pygame. |
-| `stable-baselines3` | Fornisce la classe `PPO` per inferenza e addestramento RL | `agent/difficulty.py`, `train.py`, `evaluate.py`, `main.py` | Alta | La difficoltà `neural` e i comandi di addestramento sollevano eccezioni; la CLI/GUI ripiega sull'agente euristico. |
-| `gymnasium` | Fornisce l'interfaccia standard per ambienti a rinforzo | `envs/connect4_env.py`, `agent/train.py` | Alta | Impossibile addestrare l'agente tramite Reinforcement Learning. |
-| `pygame` | Visualizzazione grafica, rendering eventi input e animazioni delle pedine | `play_gui.py` | Alta | L'interfaccia grafica Pygame non si avvia. Rimane attiva la modalità CLI. |
-| `pyttsx3` | Motore di sintesi vocale offline per la narrazione delle partite | `interaction/voice.py` | Media | Nessun feedback sonoro o vocale durante il gioco (fall-soft garantito). |
-| `numpy` | Calcolo matematico efficiente, mascheramento delle matrici di gioco | Utilizzato ovunque in tutto il package | Critica | Il sistema cessa di funzionare completamente; tutte le matrici di gioco si basano su array NumPy. |
+| Dependency | Usage | Importance | If removed |
+|:---|:---|:---|:---|
+| `numpy` | All board arrays, book lookup | Critical | Nothing works. |
+| `opencv-python` | Camera, board localization, warp, HSV classification, overlays | Critical for AR | No physical-board mode; CLI and GUI still work. |
+| `stable-baselines3` (+ PyTorch) | `PPO` inference and training for the `neural` tier | High | `neural` falls back to the heuristic; training unavailable. |
+| `gymnasium` | `Connect4Env` | High | No environment for training. |
+| `pygame` | GUI rendering and animations | High | No GUI; CLI still works. |
+| `pyttsx3` | Offline speech | Medium | No speech (fail-soft). |
+
+Dev-only: `pytest`, `pytest-cov`, `ruff`, `mypy`. Offline data generation
+additionally needs Pascal Pons' native solver (AGPL-3.0); see
+[scripts/native_solver.py](../scripts/native_solver.py).

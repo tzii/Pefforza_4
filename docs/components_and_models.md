@@ -1,124 +1,185 @@
-# Mappa del Repository, Componenti e Modelli di Dominio
+# Repository Map, Components and Domain Model
 
-Questo modulo descrive nel dettaglio l'organizzazione dei file all'interno del repository, le classi e le funzioni che compongono ciascun blocco logico, e le strutture dati che modellano il dominio del gioco Forza 4.
+> 🇮🇹 [Versione italiana](it/components_and_models.md)
+
+This module details how the repository is organized, the classes and
+functions of each logical block, and the data structures that model the
+game.
 
 ---
 
-## 1. Mappa del Repository
+## 1. Repository map
 
-| Path | Tipo | Ruolo nel progetto | Note |
+| Path | Kind | Role | Notes |
 |:---|:---|:---|:---|
-| `pefforza/` | Cartella | Package Python principale | Contiene tutti i moduli core importabili. |
-| [pefforza/constants.py](../pefforza/constants.py) | File | Singola fonte di verità geometrica | Definisce dimensioni (`ROWS`, `COLS`, `WIN_LENGTH`) e ID dei giocatori. |
-| [pefforza/rules.py](../pefforza/rules.py) | File | Logica pura di gioco | Funzioni pure e matematiche sul tabellone (senza dipendenze pesanti). |
-| `pefforza/agent/` | Cartella | Motori decisionali dell'avversario | Contiene addestramento, euristiche, minimax ed esecuzione del modello. |
-| [pefforza/agent/difficulty.py](../pefforza/agent/difficulty.py) | File | Registro delle difficoltà dell'IA | Associa le stringhe di difficoltà ai factory degli agenti decisionali. |
-| [pefforza/agent/minimax.py](../pefforza/agent/minimax.py) | File | Algoritmo Negamax + Alpha-Beta | Implementa la ricerca euristica ad albero, l'iterative deepening e la safety net. |
-| [pefforza/agent/train.py](../pefforza/agent/train.py) | File | Script di addestramento PPO | Configura l'ambiente in modalità self-play/random e allena con SB3. |
-| [pefforza/agent/evaluate.py](../pefforza/agent/evaluate.py) | File | Harness di valutazione headless | Esegue simulazioni batch tra agenti per valutarne la win-rate. |
-| `pefforza/envs/` | Cartella | Ambiente di simulazione Gymnasium | Contiene la definizione dell'ambiente RL. |
-| [pefforza/envs/connect4_env.py](../pefforza/envs/connect4_env.py) | File | Ambiente Gymnasium Connect4Env | Gestisce transizioni di stato, ricompense ed azioni legali. |
-| `pefforza/interaction/` | Cartella | Modulo di interazione audio/TTS | Gestisce i feedback sonori del sistema. |
-| [pefforza/interaction/voice.py](../pefforza/interaction/voice.py) | File | Motore vocale non bloccante | Implementa la coda asincrona e i backend `pyttsx3` / `NullBackend`. |
-| `pefforza/vision/` | Cartella | Pipeline di computer vision | Gestisce l'elaborazione dei flussi video. |
-| [pefforza/vision/board_detector.py](../pefforza/vision/board_detector.py) | File | Rilevatore e calibratore visivo | Esegue il warp prospettico e la classificazione dei colori. |
-| [pefforza/vision/diagnose.py](../pefforza/vision/diagnose.py) | File | Utility live di diagnostica | Mostra un feed interattivo con le confidenze per cella. |
-| [play_cli.py](../play_cli.py) | File | Entrypoint terminale | Permette di avviare il gioco direttamente da CLI. |
-| [play_gui.py](../play_gui.py) | File | Entrypoint GUI | Gioco interattivo 2D basato su Pygame con watchdog abilitato. |
-| [play_physical.py](../play_physical.py) | File | Entrypoint AR on-demand | L'IA suggerisce le mosse premendo la barra spaziatrice. |
-| [main.py](../main.py) | File | Entrypoint AR real-time continuo | Analizza continuamente la telecamera ed annuncia le mosse automaticamente. |
-| `tests/` | Cartella | Unit e Behavioral test | Contiene la suite completa dei test automatizzati eseguiti da pytest. |
-| [pyproject.toml](../pyproject.toml) | File | Configurazione progetto e build | Dichiara metadati, dipendenze esterne e impostazioni di linting. |
+| `pefforza/` | Folder | Main Python package | All importable core modules. |
+| [pefforza/constants.py](../pefforza/constants.py) | File | Single source of truth for geometry | `ROWS`, `COLS`, `WIN_LENGTH`, player IDs, model path. |
+| [pefforza/rules.py](../pefforza/rules.py) | File | Pure game logic | Board functions with no heavy dependencies. |
+| `pefforza/agent/` | Folder | Decision engines | Tiers, search, training, evaluation. |
+| [pefforza/agent/difficulty.py](../pefforza/agent/difficulty.py) | File | Difficulty registry | Maps tier names to agent factories. |
+| [pefforza/agent/minimax.py](../pefforza/agent/minimax.py) | File | Matrix negamax baseline + safety net | Correctness reference for the bitboard engines. |
+| [pefforza/agent/search/](../pefforza/agent/search/) | Folder | Bitboard engines | `BitPosition`, the `hard` alpha-beta engine, `PerfectSolver`, `OpeningBook`. |
+| [pefforza/agent/oracle.py](../pefforza/agent/oracle.py) | File | Exact oracle evaluation | Grades any agent move by move against solver scores. |
+| `pefforza/agent/data/` | Folder | Bundled data | `opening_book.xz` (533k positions), `oracle_positions.json` (729 positions). |
+| [pefforza/agent/networks.py](../pefforza/agent/networks.py) | File | Neural network trunk | `Connect4CNN`, an SB3 features extractor. |
+| [pefforza/agent/train.py](../pefforza/agent/train.py) | File | Training | Solver distillation and PPO (both colors, selectable opponent). |
+| [pefforza/agent/evaluate.py](../pefforza/agent/evaluate.py) | File | Headless evaluation | Matches between agents, oracle grading, tier comparison. |
+| [pefforza/envs/connect4_env.py](../pefforza/envs/connect4_env.py) | File | Gymnasium `Connect4Env` | State transitions, rewards, legal actions. |
+| [pefforza/interaction/voice.py](../pefforza/interaction/voice.py) | File | Non-blocking voice engine | Async queue, `pyttsx3` / `NullBackend` backends. |
+| [pefforza/vision/board_detector.py](../pefforza/vision/board_detector.py) | File | Board detection and classification | Automatic localization, warp, adaptive HSV classification. |
+| [pefforza/vision/validation.py](../pefforza/vision/validation.py) | File | Reading validation | Gravity, turn order, outcome and history checks. |
+| [pefforza/vision/diagnose.py](../pefforza/vision/diagnose.py) | File | Live diagnostic tool | Per-cell labels and confidences on the live feed. |
+| [pefforza/cli/](../pefforza/cli/) | Folder | Entrypoint implementations | `play_cli`, `play_gui`, `play_physical` (console scripts). |
+| `play_cli.py`, `play_gui.py`, `play_physical.py`, [main.py](../main.py) | Files | Repo-root shims | Keep `python play_cli.py` working; `main.py` = physical `--watch --voice`. |
+| [scripts/](../scripts/) | Folder | Offline tooling | Native-solver wrapper, book/oracle/teacher builders, benchmarks. |
+| `tests/` | Folder | Unit, behavioral and end-to-end tests | Headless: no camera, audio or trained model needed. |
+| [pyproject.toml](../pyproject.toml) | File | Project and tool configuration | Metadata, dependencies, ruff, mypy, pytest, coverage. |
 
 ---
 
-## 2. Component-by-Component Breakdown
+## 2. Component breakdown
 
-### Component: `Connect4Env`
-*   **File**: [pefforza/envs/connect4_env.py](../pefforza/envs/connect4_env.py)
-*   **Responsabilità**: Implementare l'ambiente di addestramento conforme allo standard Gymnasium di OpenAI, esponendo le funzioni `reset()` e `step()`.
-*   **Funzioni/classi principali**:
-    *   `Connect4Env(gym.Env)`: Classe principale dell'ambiente.
-    *   `step(action: int)`: Esegue una mossa nella colonna selezionata. Gestisce la transizione di turno, l'assegnazione dei punteggi e il controllo di fine partita.
-    *   `valid_action_mask()`: Ritorna un array booleano indicante le mosse legali (colonne non piene).
-*   **Input**: Azione intera (colonna da 0 a 6).
-*   **Output**: Nuova osservazione (`Board`), ricompensa (float), terminated (bool), truncated (bool), info (dict).
-*   **Dipendenze**: [pefforza/rules.py](../pefforza/rules.py), `gymnasium`, `numpy`.
-*   **Errori gestiti**: Tentativi di mosse fuori dal range (0-6) o su colonne sature ritornano una penalità severa di `-10.0` e terminano l'episodio di addestramento.
-*   **Side effect**: Modifica lo stato interno di `self.board` e inverte `self.current_player`.
+### `Connect4Env`
 
-### Component: `BoardDetector`
-*   **File**: [pefforza/vision/board_detector.py](../pefforza/vision/board_detector.py)
-*   **Responsabilità**: Rilevamento visivo della scacchiera, normalizzazione dell'immagine e classificazione del colore dei token inseriti.
-*   **Funzioni/classi principali**:
-    *   `calibrate(cap, flip)`: Esegue l'acquisizione manuale dei quattro punti d'angolo e calcola la matrice omografica di warping.
-    *   `classify_board_image(board_img)`: Scansiona una scacchiera raddrizzata ritagliando le ROI (*Region Of Interest*) delle celle e classificandole.
-    *   `cell_confidences(board_img)`: Calcola la percentuale di pixel colorati per cella rispetto alla soglia, restituendo un array bidimensionale di confidenza.
-*   **Input**: Frame video BGR (`np.ndarray`).
-*   **Output**: Griglia di interi `(6, 7)` con codifica $0, 1, 2$ e frame OpenCV deformato.
-*   **Dipendenze**: `cv2` (OpenCV), `numpy`.
-*   **Note tecniche**: La calibrazione richiede un ordine preciso dei punti (**TL -> TR -> BR -> BL**). Le ROI delle celle sono rimpicciolite tramite un inset del 20% (`_CELL_MARGIN_FRAC = 0.20`) per eliminare il rumore delle griglie di plastica della scacchiera.
+* **File**: [pefforza/envs/connect4_env.py](../pefforza/envs/connect4_env.py)
+* **Responsibility**: a Gymnasium-compliant environment with `reset()` and
+  `step()`.
+* **Main API**: `Connect4Env(gym.Env)`; `step(action)` plays a column,
+  hands the turn over, assigns rewards and detects the end of the game;
+  `valid_action_mask()` returns the legal columns.
+* **Input / output**: an integer action (0-6) / observation (`Board`),
+  reward, terminated, truncated, info.
+* **Error handling**: out-of-range actions or full columns return a `-10.0`
+  penalty and end the episode.
+* **Side effects**: mutates `self.board` and `self.current_player`.
 
-### Component: `MinimaxAgent`
-*   **File**: [pefforza/agent/minimax.py](../pefforza/agent/minimax.py)
-*   **Responsabilità**: Agente minimax euristico ad alta precisione con potatura alfa-beta e limitazione temporale adattiva.
-*   **Funzioni/classi principali**:
-    *   `search(board, my_id, depth)`: Esegue una ricerca Negamax completa a profondità fissa.
-    *   `search_with_time_budget(board, my_id, time_budget, ...)`: Ricerca ad approfondimento iterativo (*Iterative Deepening*). Profonda l'albero ply per ply finché non esaurisce il tempo a disposizione.
-    *   `tactical_safety_net(agent)`: Decoratore che forza l'agente a giocare una mossa vincente immediata o a bloccare una minaccia avversaria immediata (1-ply lookahead).
-*   **Input**: Griglia di gioco, ID dell'agente, colonne valide.
-*   **Output**: Mossa finale raccomandata (intero $0-6$).
-*   **Dipendenze**: [pefforza/rules.py](../pefforza/rules.py).
-*   **Note tecniche**: Per massimizzare le prestazioni, la scacchiera viene mutata sul posto (*in-place*) durante la ricorsione e ripristinata nel backtrack, eliminando l'overhead di allocazione in memoria. L'ordinamento delle mosse predefinito è centrale (`[3, 2, 4, 1, 5, 0, 6]`), il che velocizza drasticamente la potatura dei rami (tagli alfa-beta).
+### `BoardDetector` and `locate_board`
 
-### Component: `VoiceEngine`
-*   **File**: [pefforza/interaction/voice.py](../pefforza/interaction/voice.py)
-*   **Responsabilità**: Gestione asincrona del Text-to-Speech senza rallentare il thread grafico o di elaborazione principale.
-*   **Funzioni/classi principali**:
-    *   `VoiceEngine`: Manager che istanzia la coda e avvia il thread daemon lavoratore.
-    *   `speak(text)`: Accoda una stringa di testo per la riproduzione vocale.
-    *   `play_move_commentary(col, confidence)`: Genera un commento vocale specifico in base alla colonna giocata e alla confidenza della mossa.
-*   **Input**: Stringa di testo.
-*   **Output**: Output audio hardware.
-*   **Dipendenze**: `pyttsx3`, `threading`, `queue`.
-*   **Design pattern**: Implementa una struttura produttore-consumatore basata su coda thread-safe. Se il backend `pyttsx3` fallisce l'inizializzazione o non è presente hardware audio, si attiva automaticamente il `NullBackend`, rendendo il sistema "fail-soft" ed evitando crash di gioco.
+* **File**: [pefforza/vision/board_detector.py](../pefforza/vision/board_detector.py)
+* **Responsibility**: find the board, normalize the image and classify the
+  tokens.
+* **Main API**:
+  * `locate_board(frame)`: finds the non-blue holes enclosed by the board's
+    blue outline, fits the 6 x 7 lattice through the corner holes, verifies
+    that the lattice predicts the detected holes, and returns the four
+    playing-area corners (or `None`).
+  * `calibrate(cap, flip, auto=True)`: outlines the detected board (ENTER
+    accepts) or takes four clicked corners in any order; `set_corners()`
+    computes the warp.
+  * `classify_board_image(img)` / `cell_confidences(img)`: per-cell
+    classification and fill ratios, using the detector's `ColorProfile`.
+  * `adapt_colors(img, grid)`: re-fits the red/yellow hue bands and S/V
+    floors to a trusted reading; commits the new profile only if it
+    reproduces that reading exactly.
+  * `physical_col(display_col)`: maps the mirrored display column to the
+    physical one.
+* **Technical notes**: cell ROIs are inset by 20% (`_CELL_MARGIN_FRAC`) to
+  ignore the plastic frame; red uses two hue ranges because it wraps around
+  0/180.
+
+### `BoardStateValidator`
+
+* **File**: [pefforza/vision/validation.py](../pefforza/vision/validation.py)
+* **Responsibility**: accept only physically and temporally plausible
+  readings - gravity, red-first counts, a consistent outcome, and a legal
+  transition (one drop or one full round) from the last accepted state; a
+  cleared board after a finished game starts a new game.
+
+### `PhysicalAssistant` and `StableGridFilter`
+
+* **File**: [pefforza/cli/play_physical.py](../pefforza/cli/play_physical.py)
+* **Responsibility**: the camera-free decision path of the AR assistant
+  (validate, detect game over, wait for the opponent, ask the agent) and
+  the `--watch` debouncer that emits a reading only after it has been
+  identical for N frames.
+
+### Search engines
+
+* **Files**: [pefforza/agent/search/](../pefforza/agent/search/) and
+  [pefforza/agent/minimax.py](../pefforza/agent/minimax.py); details in
+  [search_engine.md](search_engine.md).
+* `BitboardSearchAgent`: depth-8 alpha-beta with a transposition table, the
+  `hard` tier, pinned to the matrix baseline by differential tests.
+* `PerfectSolver`: exact win/draw/loss solver; `solve_root` proves root
+  moves in interleaved rounds under a time budget.
+* `OpeningBook`: strongly optimal moves for every position the AI can reach
+  up to ply 17, keyed by symmetry-canonical bitboard keys.
+* `tactical_safety_net(agent)`: wraps an agent so it always takes an
+  immediate win or blocks an immediate threat.
+
+### Neural tier
+
+* **Files**: [networks.py](../pefforza/agent/networks.py),
+  [train.py](../pefforza/agent/train.py)
+* `Connect4CNN` turns the board into self/opponent/empty planes and applies
+  3 x 3 convolutions; it is the shared trunk of an ordinary SB3 `PPO`
+  policy, so checkpoints load with `PPO.load`.
+* `distill()` trains the policy on the distribution of exactly optimal
+  columns and the value head on the game outcome, from solver-labelled
+  positions; `SinglePlayerWrapper` + `train()` fine-tune with PPO.
+* At play time `model_agent` masks full columns out of the policy.
+
+### `VoiceEngine`
+
+* **File**: [pefforza/interaction/voice.py](../pefforza/interaction/voice.py)
+* **Responsibility**: asynchronous text-to-speech that never slows the game.
+* **Main API**: `speak(text)` queues a phrase; `play_move_commentary(col,
+  confidence)` builds a move comment; `shutdown()` drains the worker.
+* **Design**: producer-consumer over a thread-safe queue. If `pyttsx3`
+  fails to initialize or there is no audio device, the engine disables
+  itself (fail-soft); `PEFFORZA_TTS_BACKEND=null` forces the silent backend.
 
 ---
 
-## 3. Domain Model / Data Model
+## 3. Domain / data model
 
-Il progetto non necessita di database relazionali complessi. I dati sono strutturati principalmente in memoria attraverso array NumPy fortemente tipizzati e dataclass Python.
+No database is needed: data lives in memory as typed NumPy arrays,
+bitboard integers and dataclasses.
 
-### Scacchiera (`rules.Board`)
-Rappresentata come un array bidimensionale NumPy di tipo `np.int8` con dimensioni $6 \times 7$.
+### Board (`rules.Board`)
 
-| Riga/Colonna | Significato | Codifica |
+A 6 x 7 NumPy `int8` array.
+
+| Cell | Meaning | Encoding |
 |:---|:---|:---|
-| `board[r, c] == 0` | Cella vuota | `EMPTY` |
-| `board[r, c] == 1` | Pedina Giocatore 1 | `AI_PLAYER` (nella prospettiva del modello) / Rosso (nella visione) |
-| `board[r, c] == 2` | Pedina Giocatore 2 | `HUMAN_PLAYER` (nella prospettiva del modello) / Giallo (nella visione) |
+| `board[r, c] == 0` | Empty | `EMPTY` |
+| `board[r, c] == 1` | Player 1 | The agent itself (agent view) / red (vision view) |
+| `board[r, c] == 2` | Player 2 | The opponent (agent view) / yellow (vision view) |
 
-### Dataclass: `SearchResult`
-Definita in [pefforza/agent/minimax.py](../pefforza/agent/minimax.py) per profilare le prestazioni della ricerca euristica.
+### `BitPosition`
 
-| Campo | Tipo | Significato |
-|:---|:---|:---|
-| `column` | `int` | Colonna ottimale trovata dal motore di ricerca. |
-| `score` | `int` | Punteggio euristico stimato della mossa (depth-discounted). |
-| `depth` | `int` | Profondità massima raggiunta nell'albero delle mosse. |
-| `nodes` | `int` | Numero totale di nodi dell'albero di ricerca valutati. |
-| `elapsed` | `float` | Tempo impiegato per la ricerca in secondi. |
+Seven bits per column (six cells plus a sentinel). `current` holds the
+stones of the side to move, `mask` all stones; `key = current + mask` and
+`canonical_key = min(key, mirrored key)` index the transposition table and
+the opening book.
+
+### Oracle position
+
+`OraclePosition(moves, scores, source)`: a move sequence and the exact
+score of every column from the side to move (`0` draw, `s > 0` win with `s`
+of the mover's stones left in hand, `s < 0` loss, `None` full column);
+`source` is `line` or `random`.
+
+### `RootResult` / `SearchResult`
+
+`RootResult(move, outcome, proven, nodes, elapsed)` reports the exact
+solver's choice and whether it carries a proof (`win_now`, `proven_win`,
+`proven_draw`, `all_lost`) or is the timeout `fallback`.
+`SearchResult(column, score, depth, nodes, elapsed)` profiles the matrix
+baseline search.
 
 ---
 
-## 4. File-to-Concept Index
+## 4. Concept index
 
-| Concetto | Files | Spiegazione |
+| Concept | Files | Explanation |
 |:---|:---|:---|
-| **Geometria del Gioco** | [constants.py](../pefforza/constants.py) | Definisce le costanti fisiche e le convenzioni numeriche per le celle vuote, rosse e gialle. |
-| **Regole e Vittorie** | [rules.py](../pefforza/rules.py) | Contiene gli algoritmi per verificare la presenza di allineamenti orizzontali, verticali e diagonali di 4 pedine. |
-| **Ambiente di Reinforcement Learning** | [connect4_env.py](../pefforza/envs/connect4_env.py) | Fornisce la rappresentazione del gioco sotto forma di stati, azioni e ricompense per Gymnasium. |
-| **Ricerca Alfa-Beta** | [minimax.py](../pefforza/agent/minimax.py) | Contiene il nucleo algoritmico Negamax per il calcolo delle varianti di gioco ad albero profondo. |
-| **Raddrizzamento Prospettico** | [board_detector.py](../pefforza/vision/board_detector.py) | Esegue la calibrazione geometrica manuale e corregge la prospettiva sghemba del feed webcam. |
-| **Riconoscimento Colore** | [board_detector.py](../pefforza/vision/board_detector.py) | Converte le immagini in coordinate HSV ed applica filtri di soglia per identificare la presenza dei token rosso/giallo. |
-| **Threaded Speech Queue** | [voice.py](../pefforza/interaction/voice.py) | Gestisce il ciclo del thread daemon per evitare che la riproduzione vocale interrompa la fluidità grafica. |
+| **Game geometry** | [constants.py](../pefforza/constants.py) | Board size and cell encodings. |
+| **Rules and wins** | [rules.py](../pefforza/rules.py) | Horizontal, vertical and diagonal four-in-a-row detection. |
+| **RL environment** | [connect4_env.py](../pefforza/envs/connect4_env.py) | States, actions and rewards for Gymnasium. |
+| **Perfect play** | [search/perfect.py](../pefforza/agent/search/perfect.py), [search/book.py](../pefforza/agent/search/book.py) | Exact solver and opening book behind `impossible`. |
+| **Measuring perfection** | [oracle.py](../pefforza/agent/oracle.py) | Value-preserving and exactly-optimal move rates per tier. |
+| **Perspective rectification** | [board_detector.py](../pefforza/vision/board_detector.py) | Automatic or manual corners, homography warp. |
+| **Color recognition** | [board_detector.py](../pefforza/vision/board_detector.py) | Adaptive HSV thresholds and fill ratios. |
+| **Reading validation** | [validation.py](../pefforza/vision/validation.py) | Rejects implausible readings before the AI sees them. |
+| **Threaded speech queue** | [voice.py](../pefforza/interaction/voice.py) | Daemon worker keeps speech off the game thread. |

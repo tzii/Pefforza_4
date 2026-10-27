@@ -85,9 +85,9 @@ export function Story() {
               <div className="chapter-detail">
                 <span>THE EYES</span>
                 <span>
-                  OpenCV · HSV classification
+                  OpenCV · adaptive HSV classification
                   <br />
-                  Four-point calibration
+                  Automatic board localization
                 </span>
               </div>
             </div>
@@ -134,7 +134,7 @@ export function Story() {
                 <span>
                   Bitboard alpha-beta search
                   <br />
-                  Exact solver · PPO neural policy
+                  Opening book + exact solver · solver-taught CNN
                 </span>
               </div>
             </div>
@@ -207,7 +207,7 @@ export function Story() {
               <div className="engine-tags">
                 <span>RANDOM</span>
                 <span>HEURISTIC</span>
-                <span>MINIMAX</span>
+                <span>ALPHA-BETA</span>
                 <span>EXACT</span>
                 <span>NEURAL</span>
               </div>

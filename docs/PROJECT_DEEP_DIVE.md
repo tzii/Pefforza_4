@@ -1,67 +1,122 @@
-# Documentazione Tecnica Pefforza: Indice Generale
+# Pefforza Technical Documentation: Overview
 
-Benvenuto nella documentazione tecnica ufficiale del progetto **Pefforza** (Connect 4 AI con Computer Vision, Vocazione TTS ed esecuzione intelligente). 
+> 🇮🇹 [Versione italiana](it/PROJECT_DEEP_DIVE.md)
 
-Questa documentazione è divisa in molteplici moduli esplicativi per consentire una lettura agevole, un onboarding rapido e una comprensione approfondita dei vari moduli.
+Welcome to the technical documentation of **Pefforza** (Connect Four AI with
+computer vision, text-to-speech and perfect play). It is split into focused
+modules for quick onboarding and in-depth understanding.
 
 ---
 
-## Mappa dei Documenti
+## Document map
 
 ```mermaid
 mindmap
   root((Pefforza Documentation))
-    Introduzione
+    Introduction
       PROJECT_DEEP_DIVE.md
-    Architettura
+    Architecture
       architecture_and_dataflow.md
-    Moduli e Codice
+    Modules and code
       components_and_models.md
-    Configurazione
+      search_engine.md
+    Configuration
       interfaces_and_config.md
-    Qualita e Sicurezza
+    Quality and safety
       testing_and_reliability.md
-    Sviluppo ed Estensione
+    Development
       development_and_ops.md
-    Limiti e Futuro
+    Limits and future
       limitations_and_future.md
 ```
 
-1.  **[PROJECT_DEEP_DIVE.md (Questo file)](PROJECT_DEEP_DIVE.md)**: Introduzione generale, Executive Summary, Problem Statement e mappa di navigazione della documentazione.
-2.  **[1. Architettura e Flussi di Dati](architecture_and_dataflow.md)**: Diagramma dei componenti generali, lifecycle di esecuzione (CLI, GUI e AR) e tracciamento dei dati dal frame video della camera fino al calcolo dell'agente.
-3.  **[2. Componenti, File e Modelli di Dominio](components_and_models.md)**: Mappa dettagliata del repository, scomposizione classe per classe e file per file, strutture dati in memoria e indicizzazione dei concetti.
-4.  **[3. Interfacce, CLI e Configurazione di Ambiente](interfaces_and_config.md)**: Tabella dei comandi a riga di comando supportati, variabili d'ambiente, configurazioni del motore vocale e mappa delle dipendenze runtime/dev.
-5.  **[4. Strategia di Test e Robustezza](testing_and_reliability.md)**: Suite pytest, behavioral test contro minacce immediate, gestione degli errori e criteri di affidabilità/sicurezza del codice.
-6.  **[5. Guida allo Sviluppo, Esempi ed Estensibilità](development_and_ops.md)**: Installazione, comandi di build/test locale, tracciamento end-to-end di una mossa AR fisica e linee guida per estendere l'IA o la sintesi vocale.
-7.  **[6. Limiti, Miglioramenti Futuri e Glossario](limitations_and_future.md)**: Colli di bottiglia computazionali, limiti attuali del riconoscimento visivo, tabella prioritaria dei futuri sviluppi (P0-P3) e glossario dei termini chiave.
+1. **[PROJECT_DEEP_DIVE.md (this file)](PROJECT_DEEP_DIVE.md)**: executive
+   summary, problem statement and documentation map.
+2. **[Architecture and data flow](architecture_and_dataflow.md)**: component
+   diagram, execution lifecycle of every entrypoint (CLI, GUI, AR) and the
+   path of the data from a camera frame to the agent's move.
+3. **[Components, files and domain model](components_and_models.md)**:
+   repository map, class-by-class breakdown, in-memory data structures and a
+   concept index.
+4. **[Search engine](search_engine.md)**: the matrix baseline, the bitboard
+   engines, the exact solver, the opening book and how perfect play is
+   measured.
+5. **[Interfaces, CLI and configuration](interfaces_and_config.md)**: every
+   command, environment variables and the runtime/dev dependency map.
+6. **[Testing and reliability](testing_and_reliability.md)**: the pytest
+   suite, the exact oracle, error handling and reliability/safety criteria.
+7. **[Development guide, examples and extensions](development_and_ops.md)**:
+   setup, local commands, an end-to-end trace of a physical-board move, and
+   how to extend the AI or the voice.
+8. **[Limitations, future work and glossary](limitations_and_future.md)**:
+   known limits, the prioritized roadmap and key terms.
+
+Presentation material lives in [presentation_outline.md](presentation_outline.md)
+and [gamma_prompt.md](gamma_prompt.md); the original technical improvement plan
+(Italian) is [it/Pefforza_4_Piano_Miglioramenti_Tecnici.docx](it/Pefforza_4_Piano_Miglioramenti_Tecnici.docx).
 
 ---
 
-## 1. Executive Summary
+## 1. Executive summary
 
-**Pefforza** è un sistema integrato basato su intelligenza artificiale, computer vision e interazione vocale progettato per giocare a Forza 4 (Connect 4) sia digitalmente che su una tavola di gioco fisica reale. Il progetto combina tecniche classiche di ricerca euristica ed algoritmi di Reinforcement Learning per creare un avversario interattivo e stimolante.
+**Pefforza** is an integrated system of artificial intelligence, computer
+vision and voice interaction for playing Connect Four (Forza 4) both on
+screen and on a real physical board. It combines an exact game solver,
+classic heuristic search and a neural network trained from the solver's
+labels into an interactive, challenging opponent.
 
-### Funzionalità principali
-*   **Visione artificiale avanzata**: Tramite una telecamera (webcam) e una calibrazione prospettica guidata, il sistema riconosce la scacchiera fisica $6 \times 7$ e classifica le celle (vuota, pedina rossa, pedina gialla) sfruttando lo spazio colore HSV.
-*   **Motori decisionali multipli**: L'utente può scegliere tra 5 livelli di difficoltà, che spaziano dal gioco casuale a un motore Negamax ottimizzato con alpha-beta pruning e iterative deepening, fino ad un modello neurale addestrato tramite l'algoritmo PPO (Proximal Policy Optimization).
-*   **Interazione Vocale**: Un motore di Text-To-Speech (TTS) asincrono e "fail-soft" (basato su `pyttsx3`) fornisce commenti in tempo reale sulle mosse dell'IA, migliorando il coinvolgimento emotivo e l'esperienza dell'utente.
-*   **Tre modalità di gioco**:
-    1.  **Terminale (CLI)**: Per una partita veloce basata su testo.
-    2.  **Interfaccia Grafica (GUI Pygame)**: Con animazioni fluide di caduta delle pedine e un sistema di "watchdog" che verifica se l'IA commette errori tattici evidenti.
-    3.  **Realtà Aumentata (AR Assistant)**: Proietta una sovrapposizione visiva sul feed della telecamera indicando dove giocare la mossa raccomandata dall'IA sulla scacchiera fisica.
+### Main features
+
+* **Computer vision**: a webcam finds the physical 6 x 7 board
+  automatically (or from four clicked corners), rectifies its perspective and
+  classifies every cell (empty, red, yellow) in HSV color space. The color
+  thresholds re-fit themselves to the room's lighting from every validated
+  reading, and a validator rejects physically impossible readings (a hand
+  over the board, a token caught mid-drop) before they reach the AI.
+* **Five difficulty levels**: random, a 1-ply heuristic, a bitboard
+  alpha-beta search, the **perfect** `impossible` tier (exact opening book +
+  exact solver, measured move by move against an independent oracle), and a
+  neural network distilled from exact solver labels.
+* **Voice interaction**: an asynchronous, fail-soft text-to-speech engine
+  (`pyttsx3`) comments on the AI's moves in real time.
+* **Three ways to play**:
+  1. **Terminal (CLI)** for a quick text game.
+  2. **Pygame GUI** with smooth falling-token animations and a *watchdog*
+     that logs any obvious tactical mistake by the AI.
+  3. **Augmented-reality assistant** for a physical board, on demand (SPACE)
+     or continuously (`--watch`), drawing the recommended column on the live
+     camera feed.
 
 ---
 
-## 2. Problem Statement
+## 2. Problem statement
 
-Il gioco del Forza 4 è ampiamente studiato dal punto di vista accademico: si tratta di un gioco a informazione perfetta risolto matematicamente (il primo giocatore può sempre forzare la vittoria). Tuttavia, il trasferimento di questa logica dal mondo virtuale a una **scacchiera fisica reale** introduce diverse problematiche complesse:
+Connect Four is thoroughly studied: it is a solved game of perfect
+information (the first player can always force a win by starting in the
+center). Bringing that knowledge to a **real physical board** raises several
+hard problems:
 
-1.  **Bridging tra analogico e digitale**: Leggere lo stato del gioco fisico tramite sensori o telecamere richiede robustezza contro le variazioni di illuminazione, ombre, distorsioni prospettiche della webcam e rumore visivo. Un approccio semplice basato su coordinate fisse fallirebbe non appena la telecamera o la scacchiera si spostano leggermente.
-2.  **Valore del tempo reale e latenza**: Gli algoritmi decisionali devono rispondere entro limiti rigidi di tempo per evitare che il gioco risulti frustrante, garantendo al contempo la massima reattività dell'interfaccia utente (evitando, ad esempio, che il ciclo di calcolo del minimax blocchi il rendering grafico o l'audio).
-3.  **Sicurezza tattica obbligatoria**: I modelli decisionali neurali basati su RL possono occasionalmente presentare "buchi" tattici e ignorare minacce immediate di vittoria dell'avversario. Il sistema deve disporre di protezioni deterministiche "defense-in-depth" per impedire errori grossolani che minerebbero la credibilità dell'IA.
+1. **Bridging analog and digital.** Reading the game through a camera must
+   be robust to lighting changes, shadows, perspective distortion and visual
+   noise. Fixed pixel coordinates break as soon as the camera or the board
+   moves, and fixed color thresholds break when the room gets darker.
+2. **Real time.** Decisions must arrive within a few seconds so the game
+   stays fluid - yet a pure-Python search cannot prove the opening of
+   Connect Four interactively.
+3. **Trust.** A neural policy can have tactical blind spots, and a single
+   misread frame can make any engine give confident nonsense. "Perfect" must
+   be measured, not assumed.
 
-Pefforza risolve questi problemi implementando:
-*   Una pipeline OpenCV con calibrazione a 4 punti prospettici ed elaborazione dinamica della griglia basata su intervalli HSV per i singoli colori delle pedine.
-*   Un motore di ricerca Negamax con ottimizzazione dell'ordine delle mosse (preferenza per la colonna centrale) integrato con *Iterative Deepening* basato su budget di tempo per le difficoltà più elevate.
-*   Un wrapper deterministico a 1-ply (**Tactical Safety Net**) che previene sviste grossolane intercettando vittorie immediate o minacce avversarie prima di cedere il controllo all'IA euristica/neurale.
-*   Un thread separato basato su coda per gestire il Text-To-Speech in modo non bloccante.
+Pefforza addresses them with:
+
+* an OpenCV pipeline that locates the board from the lattice of its holes,
+  warps it to a rectangle, classifies cells with adaptive HSV thresholds and
+  validates every reading against gravity, turn order and the game history;
+* an exact solver with an **opening book** generated offline by a native
+  solver (533k positions up to ply 17) so the strongest tier plays perfectly
+  from the first move, and anytime root proofs past the book;
+* an **exact oracle** (positions with the solver score of every column) that
+  grades every tier move by move;
+* a deterministic 1-ply **tactical safety net** that wraps the search tiers;
+* a queue-based worker thread that keeps text-to-speech from ever blocking
+  the game.
